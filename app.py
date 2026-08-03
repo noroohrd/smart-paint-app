@@ -101,8 +101,9 @@ with tab_defect:
                     4. **향후 예방 대책**: (스프레이 건 세팅 및 환경 설정 권장 값)
                     """
 
+                    # ★ 최신 3.5 버전 모델로 수정됨 ★
                     response = client.models.generate_content(
-                        model="gemini-2.0-flash",
+                        model="gemini-3.5-flash",
                         contents=[img, defect_prompt]
                     )
                     st.success("결함 진단 완료!")
@@ -172,8 +173,9 @@ with tab_tuning:
                     4. **최종 교반 및 도장 주의사항**:
                     """
 
+                    # ★ 최신 3.5 버전 모델로 수정됨 ★
                     response = client.models.generate_content(
-                        model="gemini-2.0-flash",
+                        model="gemini-3.5-flash",
                         contents=[img_target, img_current, tuning_prompt]
                     )
 
