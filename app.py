@@ -3,7 +3,22 @@ from google import genai
 from google.genai.errors import APIError
 from PIL import Image
 
+# ----------------------------------------------------
+# 0. 이미지 리사이즈 함수 (API 토큰 절감 핵심 로직)
+# ----------------------------------------------------
+def load_and_resize(image_file, max_size=(800, 800)):
+    """
+    고화질 이미지를 비율 유지하며 최대 max_size로 축소하여 API 토큰 소비를 대폭 줄입니다.
+    """
+    img = Image.open(image_file)
+    if img.mode in ("RGBA", "P"):
+        img = img.convert("RGB")
+    img.thumbnail(max_size)
+    return img
+
+# ----------------------------------------------------
 # 1. 페이지 기본 설정
+# ----------------------------------------------------
 st.set_page_config(
     page_title="자동차 도장 스마트 AI 통합 솔루션",
     page_icon="🚗",
@@ -13,7 +28,9 @@ st.set_page_config(
 st.title("🚗 자동차 도장 스마트 AI 통합 솔루션")
 st.caption("AI 기반 도장 결함 원인 진단 및 미세 조색(Fine-Tuning) 레시피 산출 시스템")
 
+# ----------------------------------------------------
 # 2. 사이드바 - API 키 및 설정
+# ----------------------------------------------------
 with st.sidebar:
     st.header("⚙️ 시스템 설정")
     api_key = st.text_input("Gemini API Key 입력", type="password")
@@ -32,7 +49,9 @@ if not api_key:
 # Gemini 클라이언트 초기화
 client = genai.Client(api_key=api_key)
 
+# ----------------------------------------------------
 # 3. 메인 탭 구성
+# ----------------------------------------------------
 tab_defect, tab_tuning = st.tabs(["🔍 도장 결함 진단", "🎨 AI 조색 Fine-Tuning"])
 
 
@@ -60,7 +79,9 @@ with tab_defect:
         if defect_img_file:
             with st.spinner("AI가 결함 형태와 작업 환경을 분석 중입니다..."):
                 try:
-                    img = Image.open(defect_img_file)
+                    # 이미지 최적화 리사이즈 적용
+                    img = load_and_resize(defect_img_file)
+                    
                     defect_prompt = f"""
                     당신은 자동차 도장 및 표면처리 최고 전문가입니다.
                     전달된 결함 부위 이미지를 분석하고, 제공된 작업 환경 정보를 참고하여 종합 진단 리포트를 작성해 주세요.
@@ -79,6 +100,7 @@ with tab_defect:
                     )
                     st.success("결함 진단 완료!")
                     st.markdown(response.text)
+
                 except APIError as e:
                     if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
                         st.warning("⏳ 구글 API 무료 사용량 한도(1분당 요청 수)에 도달했습니다. 약 1분 후 다시 시도해 주세요.")
@@ -127,8 +149,9 @@ with tab_tuning:
         if target_img_file and current_img_file:
             with st.spinner("두 시편의 색차 및 안료 비중을 분석 중입니다..."):
                 try:
-                    img_target = Image.open(target_img_file)
-                    img_current = Image.open(current_img_file)
+                    # 사진 2장 모두 최적화 리사이즈 적용
+                    img_target = load_and_resize(target_img_file)
+                    img_current = load_and_resize(current_img_file)
 
                     tuning_prompt = f"""
                     당신은 최고의 자동차 조색 및 안료 처방 전문가입니다.
