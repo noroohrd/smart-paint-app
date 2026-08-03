@@ -9,7 +9,6 @@ from PIL import Image
 def load_and_resize(image_file, max_size=(800, 800)):
     """
     고화질 이미지를 비율을 유지하면서 최대 800x800 해상도로 축소합니다.
-    이를 통해 API 토큰 소비량을 80% 이상 절감하여 429 한도 초과 에러를 방지합니다.
     """
     img = Image.open(image_file)
     if img.mode in ("RGBA", "P"):
@@ -103,17 +102,14 @@ with tab_defect:
                     """
 
                     response = client.models.generate_content(
-                        model="gemini-2.0-flash-lite",
+                        model="gemini-2.0-flash",
                         contents=[img, defect_prompt]
                     )
                     st.success("결함 진단 완료!")
                     st.markdown(response.text)
 
                 except APIError as e:
-                    if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
-                        st.warning("⏳ 구글 API 무료 사용량 한도(1분당 요청 수)에 도달했습니다. 약 1분 후 다시 시도해 주세요.")
-                    else:
-                        st.error(f"오류가 발생했습니다: {e}")
+                    st.error(f"오류가 발생했습니다: {e}")
         else:
             st.warning("결함 부위 사진을 업로드해 주세요.")
 
@@ -177,7 +173,7 @@ with tab_tuning:
                     """
 
                     response = client.models.generate_content(
-                        model="gemini-2.0-flash-lite",
+                        model="gemini-2.0-flash",
                         contents=[img_target, img_current, tuning_prompt]
                     )
 
@@ -185,9 +181,6 @@ with tab_tuning:
                     st.markdown(response.text)
 
                 except APIError as e:
-                    if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
-                        st.warning("⏳ 구글 API 무료 사용량 한도(1분당 요청 수)에 도달했습니다. 약 1분 후 다시 시도해 주세요.")
-                    else:
-                        st.error(f"오류가 발생했습니다: {e}")
+                    st.error(f"오류가 발생했습니다: {e}")
         else:
             st.warning("목표 색상 사진과 1차 시편 사진을 모두 업로드해 주세요.")
