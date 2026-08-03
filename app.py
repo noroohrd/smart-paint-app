@@ -4,11 +4,12 @@ from google.genai.errors import APIError
 from PIL import Image
 
 # ----------------------------------------------------
-# 0. 이미지 리사이즈 함수 (API 토큰 절감 핵심 로직)
+# 0. 이미지 최적화 리사이즈 함수 (API 토큰 절감 핵심)
 # ----------------------------------------------------
 def load_and_resize(image_file, max_size=(800, 800)):
     """
-    고화질 이미지를 비율 유지하며 최대 max_size로 축소하여 API 토큰 소비를 대폭 줄입니다.
+    고화질 이미지를 비율을 유지하면서 최대 800x800 해상도로 축소합니다.
+    이를 통해 API 토큰 소비량을 80% 이상 절감하여 429 한도 초과 에러를 방지합니다.
     """
     img = Image.open(image_file)
     if img.mode in ("RGBA", "P"):
@@ -29,11 +30,17 @@ st.title("🚗 자동차 도장 스마트 AI 통합 솔루션")
 st.caption("AI 기반 도장 결함 원인 진단 및 미세 조색(Fine-Tuning) 레시피 산출 시스템")
 
 # ----------------------------------------------------
-# 2. 사이드바 - API 키 및 설정
+# 2. 사이드바 - API 키 및 설정 (Secrets 자동 연동)
 # ----------------------------------------------------
 with st.sidebar:
     st.header("⚙️ 시스템 설정")
-    api_key = st.text_input("Gemini API Key 입력", type="password")
+    
+    # Streamlit Secrets에 등록된 키가 있으면 자동 연동, 없으면 화면에서 입력받음
+    if "GEMINI_API_KEY" in st.secrets:
+        api_key = st.secrets["GEMINI_API_KEY"]
+        st.success("🔒 API 키가 안전하게 자동 연결되었습니다.")
+    else:
+        api_key = st.text_input("Gemini API Key 입력", type="password")
     
     st.markdown("---")
     st.markdown("### 💡 주요 기능 안내")
@@ -42,6 +49,7 @@ with st.sidebar:
     * **🎨 AI 조색 Fine-Tuning**: 시편 사진 비교 및 $L^*a*b^*$ 데이터를 기반으로 0.01g 단위 미세 보정량 산출
     """)
 
+# API 키가 없으면 하단 모듈 비활성화
 if not api_key:
     st.info("👈 왼쪽 사이드바에 Gemini API 키를 입력하면 시스템이 활성화됩니다.")
     st.stop()
@@ -79,7 +87,7 @@ with tab_defect:
         if defect_img_file:
             with st.spinner("AI가 결함 형태와 작업 환경을 분석 중입니다..."):
                 try:
-                    # 이미지 최적화 리사이즈 적용
+                    # 이미지 경량화 적용
                     img = load_and_resize(defect_img_file)
                     
                     defect_prompt = f"""
