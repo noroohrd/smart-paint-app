@@ -4,6 +4,7 @@ from google.genai.errors import APIError
 from PIL import Image
 import os
 import io
+import pandas as pd
 
 # ----------------------------------------------------
 # 0. 이미지 최적화 리사이즈 및 절대 경로 로고 탐색
@@ -25,9 +26,6 @@ def load_and_resize(image_file_or_bytes, max_size=(800, 800)):
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 def find_logo_file():
-    """
-    app.py와 같은 폴더 내에 있는 로고 이미지 경로를 찾아 반환합니다.
-    """
     possible_names = ["waterq_logo.png", "waterq_logo.PNG", "waterq_logo.jpg", "logo.png"]
     for fname in possible_names:
         full_path = os.path.join(BASE_DIR, fname)
@@ -44,11 +42,23 @@ st.set_page_config(
     layout="wide"
 )
 
-# 목표 차체 사진 세션 상태 유지 (1차에서 등록한 사진이 2차/N차에서도 자동 유지됨)
+# 세션 데이터 유지 (목표 사진, 1차 시편 사진, 1차 배합 레시피 저장)
 if "target_img_bytes" not in st.session_state:
     st.session_state["target_img_bytes"] = None
 if "target_img_name" not in st.session_state:
     st.session_state["target_img_name"] = None
+
+if "sample_1_bytes" not in st.session_state:
+    st.session_state["sample_1_bytes"] = None
+if "sample_1_name" not in st.session_state:
+    st.session_state["sample_1_name"] = None
+
+# 기본 1차 레시피 데이터 예시 (표 형태 연동용)
+if "recipe_table_df" not in st.session_state:
+    st.session_state["recipe_table_df"] = pd.DataFrame({
+        "안료 코드 (Q-Code)": ["Q-7800", "Q-8200", "Q-5450", "Q-9500"],
+        "1차 배합 중량 (g)": [80.0, 10.0, 5.0, 5.0]
+    })
 
 # Custom CSS Inject
 st.markdown("""<style>
@@ -81,6 +91,14 @@ st.markdown("""<style>
         margin: 4px 0 0 0;
         letter-spacing: -0.5px;
         word-break: keep-all;
+    }
+
+    .comparison-card {
+        background-color: #F8FAFC;
+        border: 2px solid #005BB5;
+        border-radius: 12px;
+        padding: 16px;
+        margin-bottom: 20px;
     }
 
     .stTabs [data-baseweb="tab-list"] {
@@ -210,8 +228,8 @@ with st.sidebar:
     st.markdown("---")
     st.markdown("### 📘 Water-Q 시스템 핵심 수칙")
     st.markdown("""
-    * **목표 사진 자동 유지**: 1차 등록 후 2차/N차 단계 변경 시에도 목표 사진 자동 유지
-    * **차수별 비교표 생성**: 1차(이전) 배합과 2차(신규) 배합 간 가감 중량을 한눈에 대조
+    * **2차 레시피 표 자동연동**: 2차 조색 선택 시 1차 레시피 업로드 제거 및 표 형태 자동 대조
+    * **시편 정밀 확대 비교**: 1차 vs 2차 시편 이미지 확대 비교
     * **카메라 왜곡 보정**: 선택 기종 특유의 HDR/색감 왜곡을 역추정하여 실제 육안 기준 색차 분석
     * **Q-7000(표준백색)**: 배합 내 **10% 이상 사용 금지** (초과 시 고농도 백색 **Q-7800 / Q-7900** 교체)
     """)
@@ -233,70 +251,64 @@ tab_tuning, tab_defect = st.tabs(["🎨 Water-Q AI 미세 조색 (Fine-Tuning)",
 with tab_tuning:
     st.subheader("🎯 현재 진행할 조색 단계를 선택하세요:")
     
-    # 옵션 명칭을 명확히 구분 (1차 / 2차 / N차)
     stage_choice = st.radio(
         "조색 단계 선택",
-        ["1차 조색 (최초 조색)", "2차 조색 (1차 시편 기준 2차 보정)", "3차 이상 N차 조색 (N-1차 기준 N차 보정)"],
+        ["1차 조색 (최초 조색)", "2차 조색 (1차 시편 오차 반영 2차 보정)", "3차 이상 N차 조색 (N-1차 오차 반영 N차 보정)"],
         horizontal=True,
         key="stage_choice_radio"
     )
     
     st.markdown("---")
 
-    # [수정포인트] 서브스트링 버그 방지를 위해 exact matching 처리
-    if stage_choice.startswith("1차"):
+    # 단계별 플래그 및 문자열 세팅
+    is_stage_1 = stage_choice.startswith("1차")
+    is_stage_2 = stage_choice.startswith("2차")
+    
+    if is_stage_1:
         stage_code = "1차"
         prev_stage_code = "기본"
         sample_header_text = "2. 1차 도장 시편 사진 (Sample)"
         sample_uploader_text = "1차 도장 시편 사진 업로드"
-        recipe_header_text = "3. 1차 기본 배합 레시피 정보"
-        recipe_input_text = "1차 기본 배합 레시피"
         btn_text = "🚀 1차 Water-Q 미세 조색 실행"
-    elif stage_choice.startswith("2차"):
+    elif is_stage_2:
         stage_code = "2차"
         prev_stage_code = "1차"
         sample_header_text = "2. 2차 도장 시편 사진 (Sample)"
         sample_uploader_text = "2차 도장 시편 사진 업로드"
-        recipe_header_text = "3. 1차 조색 시 사용했던 배합 레시피"
-        recipe_input_text = "1차 조색 배합 레시피"
-        btn_text = "🚀 2차 Water-Q 미세 조색 실행 (1차 vs 2차 비교표 생성)"
+        btn_text = "🚀 2차 Water-Q 미세 조색 실행 (1차 vs 2차 대조표 생성)"
     else:
         stage_code = "N차"
-        prev_stage_code = "직전(N-1차)"
+        prev_stage_code = "이전(N-1차)"
         sample_header_text = f"2. {stage_code} 도장 시편 사진 (Sample)"
         sample_uploader_text = f"{stage_code} 도장 시편 사진 업로드"
-        recipe_header_text = f"3. 직전({prev_stage_code}) 조색 시 사용했던 배합 레시피"
-        recipe_input_text = f"{prev_stage_code} 조색 배합 레시피"
-        btn_text = f"🚀 {stage_code} Water-Q 미세 조색 실행 ({prev_stage_code} vs {stage_code} 비교표 생성)"
+        btn_text = f"🚀 {stage_code} Water-Q 미세 조색 실행 ({prev_stage_code} vs {stage_code} 대조표 생성)"
 
     col_t1, col_t2 = st.columns(2)
     
-    # 1. 목표 차체/판넬 사진 (1차 업로드 후 세션 자동 유지)
+    # 1. 목표 차체 사진 (1차 등록 후 세션 유지)
     with col_t1:
         st.write("1. 목표 차체/판넬 사진 (Target)")
         uploaded_target = st.file_uploader(
-            "목표 차체 사진 업로드 (1차 등록 후 자동 유지)",
+            "목표 차체 사진 업로드 (자동 유지됨)",
             type=["jpg", "png", "jpeg"],
             key="target_file_uploader"
         )
         
-        # 파일이 새로 업로드되면 세션 상태에 저장
         if uploaded_target is not None:
             st.session_state["target_img_bytes"] = uploaded_target.getvalue()
             st.session_state["target_img_name"] = uploaded_target.name
 
-        # 세션에 저장된 목표 사진이 있으면 2차/N차에서도 계속 표시
         if st.session_state["target_img_bytes"] is not None:
             target_pil_img = load_and_resize(st.session_state["target_img_bytes"])
             st.image(
                 target_pil_img,
-                caption=f"목표 색상 (Target) [자동 유지됨: {st.session_state['target_img_name']}] - [{selected_camera}]",
+                caption=f"목표 색상 (Target) [자동 유지] - [{selected_camera}]",
                 use_container_width=True
             )
         else:
             st.info("💡 목표 차체 사진을 업로드해 주세요. 2차/N차 단계에서도 자동으로 유지됩니다.")
 
-    # 2. 선택된 차수 전용 시편 사진 업로드
+    # 2. 단계별 시편 사진 업로드 (1차 사진 지워지고 2차/N차 신규 업로드)
     with col_t2:
         st.write(sample_header_text)
         current_img_file = st.file_uploader(
@@ -304,45 +316,81 @@ with tab_tuning:
             type=["jpg", "png", "jpeg"],
             key=f"sample_uploader_{stage_code}"
         )
+        
+        # 1차 조색일 때 1차 시편 세션 저장
+        if is_stage_1 and current_img_file is not None:
+            st.session_state["sample_1_bytes"] = current_img_file.getvalue()
+            st.session_state["sample_1_name"] = current_img_file.name
+            
         if current_img_file:
             st.image(
                 Image.open(current_img_file),
-                caption=f"{stage_code} 시편 사진 (Sample) - [{selected_camera}]",
+                caption=f"{stage_code} 신규 도장 시편 사진 (Sample) - [{selected_camera}]",
                 use_container_width=True
             )
+
+    # ★ 2차 이상 조색 시: 1차 시편 vs 2차 시편 확대 비교 영역 표시 ★
+    if not is_stage_1 and st.session_state["sample_1_bytes"] is not None and current_img_file is not None:
+        st.markdown("---")
+        st.markdown("""<div class="comparison-card">
+            <h4 style="margin-top:0; color:#003375;">🔍 1차 시편 vs 2차 시편 정밀 확대 비교 (Visual Magnification)</h4>
+            <p style="font-size:13px; color:#4A5568;">1차 시편 대비 2차 시편의 명도, 색조, 입자감 변화를 크게 대조하여 확인할 수 있습니다.</p>
+        </div>""", unsafe_allow_html=True)
+        
+        c_comp1, c_comp2 = st.columns(2)
+        with c_comp1:
+            st.write("🔻 **1차 도장 시편 (이전)**")
+            st.image(load_and_resize(st.session_state["sample_1_bytes"]), use_container_width=True)
+        with c_comp2:
+            st.write("🔻 **2차 도장 시편 (현재 신규)**")
+            st.image(Image.open(current_img_file), use_container_width=True)
 
     st.markdown("---")
     
     col_r1, col_r2 = st.columns([1.2, 0.8])
 
+    # 3. 배합 레시피 영역 (1차만 업로드 / 2차부터는 표 형태로 자동 정리)
     with col_r1:
-        st.subheader(recipe_header_text)
-        
-        recipe_input_type = st.radio(
-            "배합표 입력 방식을 선택하세요:",
-            ["📸 배합표 사진 업로드 (추천)", "✍️ 텍스트 직접 입력"],
-            horizontal=True,
-            key=f"recipe_type_{stage_code}"
-        )
-
-        recipe_img_file = None
-        recipe_text = ""
-
-        if "사진 업로드" in recipe_input_type:
-            recipe_img_file = st.file_uploader(
-                f"{recipe_input_text} 사진 업로드",
-                type=["jpg", "png", "jpeg"],
-                key=f"recipe_img_{stage_code}"
+        if is_stage_1:
+            st.subheader("3. 1차 기본 배합 레시피 정보")
+            recipe_input_type = st.radio(
+                "배합표 입력 방식을 선택하세요:",
+                ["📸 배합표 사진 업로드 (추천)", "✍️ 텍스트 직접 입력"],
+                horizontal=True,
+                key="recipe_type_1차"
             )
-            if recipe_img_file:
-                st.image(Image.open(recipe_img_file), caption="업로드된 배합표 이미지", width=350)
+
+            recipe_img_file = None
+            recipe_text = ""
+
+            if "사진 업로드" in recipe_input_type:
+                recipe_img_file = st.file_uploader(
+                    "1차 배합표 / 조색기 화면 사진 업로드",
+                    type=["jpg", "png", "jpeg"],
+                    key="recipe_img_1차"
+                )
+                if recipe_img_file:
+                    st.image(Image.open(recipe_img_file), caption="업로드된 배합표 이미지", width=350)
+            else:
+                recipe_text = st.text_area(
+                    "1차 배합 레시피 직접 작성",
+                    value="Q-7000 80g, Q-8200 10g, Q-5450 5g, Q-9500 5g",
+                    placeholder="예: Q-7000 100g, Q-5450 12g, Q-8200 1.5g...",
+                    key="recipe_text_1차"
+                )
         else:
-            recipe_text = st.text_area(
-                f"{recipe_input_text} 직접 작성",
-                value="Q-7000 80g, Q-8200 10g, Q-5450 5g, Q-9500 5g",
-                placeholder="예: Q-7000 100g, Q-5450 12g, Q-8200 1.5g...",
-                key=f"recipe_text_{stage_code}"
+            # 2차/N차 조색 모드: 사진 업로드 제거 및 1차 배합 표(Table) 자동 출력
+            st.subheader(f"3. {prev_stage_code} 확정 배합 레시피 (표 형태로 자동 연동)")
+            st.info("💡 2차 이상 조색 시에는 배합표 사진 업로드가 생략되며, 1차 배합 데이터가 표(Table)로 정리되어 반영됩니다.")
+            
+            # 1차 배합 표 편집/확인
+            edited_df = st.data_editor(
+                st.session_state["recipe_table_df"],
+                use_container_width=True,
+                num_rows="dynamic",
+                key=f"editor_{stage_code}"
             )
+            st.session_state["recipe_table_df"] = edited_df
 
     with col_r2:
         st.subheader(f"4. {stage_code} 목표 조색 중량 및 측색 수치")
@@ -370,22 +418,27 @@ with tab_tuning:
             st.warning("⚠️ 목표 차체/판넬 사진(Target)을 1. 영역에 업로드해 주세요.")
         elif current_img_file is None:
             st.warning(f"⚠️ {stage_code} 도장 시편 사진(Sample)을 2. 영역에 업로드해 주세요.")
-        elif not recipe_img_file and not recipe_text.strip():
-            st.warning(f"⚠️ {recipe_input_text} 사진을 업로드하거나 텍스트를 입력해 주세요.")
+        elif is_stage_1 and (not recipe_img_file and not recipe_text.strip()):
+            st.warning("⚠️ 1차 배합표 사진을 업로드하거나 텍스트를 입력해 주세요.")
         else:
-            with st.spinner(f"AI가 [{stage_code} 조색] 모드로 {prev_stage_code} 배합 대비 {stage_code} 신규 배합 대조표를 생성 중입니다..."):
+            with st.spinner(f"AI가 [{stage_code} 조색] 모드로 {prev_stage_code} 배합표와 {stage_code} 시편 오차를 분석하여 신규 배합 대조표를 생성 중입니다..."):
                 try:
                     img_target = load_and_resize(st.session_state["target_img_bytes"])
                     img_current = load_and_resize(current_img_file)
 
                     contents_payload = [img_target, img_current]
 
-                    if recipe_img_file:
-                        img_recipe = load_and_resize(recipe_img_file)
-                        contents_payload.append(img_recipe)
-                        recipe_prompt_part = f"- {prev_stage_code} 사용 배합 레시피: [첨부된 세 번째 이미지(배합표 사진)에서 안료명과 중량을 OCR 및 시각 분석하여 파악할 것]"
+                    if is_stage_1:
+                        if recipe_img_file:
+                            img_recipe = load_and_resize(recipe_img_file)
+                            contents_payload.append(img_recipe)
+                            recipe_prompt_part = "- 1차 사용 배합 레시피: [첨부된 세 번째 이미지(배합표 사진)에서 안료명과 중량을 OCR 및 시각 분석하여 파악할 것]"
+                        else:
+                            recipe_prompt_part = f"- 1차 사용 배합 레시피: {recipe_text}"
                     else:
-                        recipe_prompt_part = f"- {prev_stage_code} 사용 배합 레시피: {recipe_text}"
+                        # 2차/N차 모드: DataFrame 표 형태 텍스트로 전달
+                        table_str = st.session_state["recipe_table_df"].to_string(index=False)
+                        recipe_prompt_part = f"- {prev_stage_code} 확정 배합표 (표 연동):\n{table_str}"
 
                     waterq_system_prompt = f"""
                     당신은 노루페인트 '워터큐(Water-Q) 칼라뱅크 시스템' 최고의 기술 조색 전문가입니다.
