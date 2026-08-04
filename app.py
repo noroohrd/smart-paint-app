@@ -36,27 +36,23 @@ st.set_page_config(
     layout="wide"
 )
 
-# 프로젝트 폴더 내 로고 이미지 파일 검색 (waterq_logo.png 등)
+# 현재 스크립트 실행 경로 기준 로고 파일 탐색
+current_dir = os.path.dirname(os.path.abspath(__file__))
 logo_b64 = None
+
 for logo_filename in ["waterq_logo.png", "waterq_logo.jpg", "waterq_logo.jpeg", "logo.png"]:
-    logo_b64 = get_image_base64(logo_filename)
+    target_path = os.path.join(current_dir, logo_filename)
+    logo_b64 = get_image_base64(target_path)
+    if not logo_b64:
+        logo_b64 = get_image_base64(logo_filename) # 상대 경로 재시도
     if logo_b64:
         break
 
-# 헤더 우측 로고 HTML 구성 (로고 파일 존재 시 이미지, 미존재 시 백업 텍스트)
+# 로고 HTML 구성 (들여쓰기 공백 제거로 코드블록 버그 방지)
 if logo_b64:
-    logo_header_html = f'''
-    <div class="waterq-badge">
-        <img src="data:image/png;base64,{logo_b64}" class="waterq-logo-img" alt="WATER-Q Logo" />
-    </div>
-    '''
+    logo_header_html = f'<div class="waterq-badge"><img src="data:image/png;base64,{logo_b64}" class="waterq-logo-img" alt="WATER-Q Logo" /></div>'
 else:
-    logo_header_html = '''
-    <div class="waterq-badge-text">
-        <div class="waterq-logo-text">WATER-Q</div>
-        <div class="waterq-sub-text">COLOR BANK SYSTEM</div>
-    </div>
-    '''
+    logo_header_html = '<div class="waterq-badge-text"><div class="waterq-logo-text">WATER-Q</div><div class="waterq-sub-text">COLOR BANK SYSTEM</div></div>'
 
 # 노루페인트 자동차보수용 도료(autorefinishes.co.kr) 웹사이트 컨셉 Custom CSS
 st.markdown("""
@@ -70,7 +66,7 @@ st.markdown("""
     /* 상단 노루페인트 헤더 배너 */
     .noroo-header-container {
         background: linear-gradient(135deg, #091936 0%, #003375 50%, #005BB5 100%);
-        padding: 20px 32px;
+        padding: 20px 28px;
         border-radius: 16px;
         color: #FFFFFF;
         margin-bottom: 25px;
@@ -78,6 +74,8 @@ st.markdown("""
         display: flex;
         align-items: center;
         justify-content: space-between;
+        gap: 16px;
+        word-break: keep-all;
     }
 
     .noroo-title-group {
@@ -94,22 +92,24 @@ st.markdown("""
     }
 
     .noroo-main-title {
-        font-size: 24px;
+        font-size: 22px;
         font-weight: 800;
         color: #FFFFFF;
         margin: 4px 0 0 0;
         letter-spacing: -0.5px;
+        word-break: keep-all;
     }
 
     /* Water-Q 로고 뱃지 (이미지용 화이트 카드) */
     .waterq-badge {
         background: #FFFFFF;
-        padding: 8px 18px;
+        padding: 8px 16px;
         border-radius: 12px;
         box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
         display: flex;
         align-items: center;
         justify-content: center;
+        flex-shrink: 0;
     }
 
     .waterq-logo-img {
@@ -118,18 +118,19 @@ st.markdown("""
         object-fit: contain;
     }
 
-    /* 로고 이미지 미존재 시 백업 텍스트 스타일 */
+    /* 로고 미감지 시 백업 텍스트 뱃지 */
     .waterq-badge-text {
         background: rgba(255, 255, 255, 0.08);
         border: 1px solid rgba(255, 255, 255, 0.25);
         backdrop-filter: blur(12px);
-        padding: 10px 20px;
-        border-radius: 30px;
-        text-align: right;
+        padding: 8px 16px;
+        border-radius: 12px;
+        text-align: center;
+        flex-shrink: 0;
     }
 
     .waterq-logo-text {
-        font-size: 20px;
+        font-size: 18px;
         font-weight: 900;
         color: #00D2FF;
         letter-spacing: 2px;
@@ -137,7 +138,7 @@ st.markdown("""
     }
 
     .waterq-sub-text {
-        font-size: 10px;
+        font-size: 9px;
         color: #E0E0E0;
         letter-spacing: 1px;
     }
@@ -191,15 +192,8 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # 헤더 배너 렌더링
-st.markdown(f"""
-<div class="noroo-header-container">
-    <div class="noroo-title-group">
-        <span class="noroo-brand-name">NOROO AUTO REFINISHES</span>
-        <h1 class="noroo-main-title">AI 스마트 조색 & 도장 결함 진단 솔루션</h1>
-    </div>
-    {logo_header_html}
-</div>
-""", unsafe_allow_html=True)
+header_container_html = f'<div class="noroo-header-container"><div class="noroo-title-group"><span class="noroo-brand-name">NOROO AUTO REFINISHES</span><h1 class="noroo-main-title">AI 스마트 조색 & 도장 결함 진단 솔루션</h1></div>{logo_header_html}</div>'
+st.markdown(header_container_html, unsafe_allow_html=True)
 
 # ----------------------------------------------------
 # 2. 사이드바 - API 키 및 스마트폰/시스템 설정
@@ -266,7 +260,7 @@ with st.sidebar:
     st.info(f"현재 카메라 보정 기종: **{selected_camera}**")
 
     st.markdown("---")
-    st.markdown("### 📘 워터큐(Water-Q) 시스템 핵심 수칙")
+    st.markdown("### 📘 Water-Q 시스템 핵심 수칙")
     st.markdown("""
     * **카메라 왜곡 보정**: 선택 기종 특유의 HDR/색감 왜곡을 역추정하여 실제 육안 기준 색차 분석
     * **델타 E ($\Delta E$) 예측**: 도장 완료 시 목표 색상과의 예상 색차율 제공
