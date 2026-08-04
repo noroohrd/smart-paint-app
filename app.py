@@ -17,44 +17,6 @@ def load_and_resize(image_file, max_size=(800, 800)):
     return img
 
 # ----------------------------------------------------
-# 1. 스마트폰 기종 데이터베이스 (2015년 ~ 현재)
-# ----------------------------------------------------
-PHONE_MODELS = {
-    "애플 (iPhone)": [
-        "iPhone 17 / 17 Pro / 17 Pro Max (2025/2026)",
-        "iPhone 16 / 16 Plus / 16 Pro / 16 Pro Max (2024)",
-        "iPhone 15 / 15 Plus / 15 Pro / 15 Pro Max (2023)",
-        "iPhone 14 / 14 Plus / 14 Pro / 14 Pro Max (2022)",
-        "iPhone 13 / 13 mini / 13 Pro / 13 Pro Max (2021)",
-        "iPhone 12 / 12 mini / 12 Pro / 12 Pro Max (2020)",
-        "iPhone 11 / 11 Pro아, 하드코딩되어 있던 `iPhone 14` 설정을 **사용자가 사이드바에서 원하는 스마트폰 기종(iPhone 14/15, 갤럭시 S23/S24, 직접 입력 등)으로 직접 선택할 수 있도록** 수정한 코드입니다!
-
-사이드바에 **"📱 카메라 보정 설정"** 영역을 추가하고, 선택된 기종의 이미지 프로세싱 특성이 AI 프롬프트와 UI 캡션에 동적으로 반영되도록 개선했습니다.
-
----
-
-### 🛠️ 수정한 전체 Python 코드
-
-```python
-import streamlit as st
-from google import genai
-from google.genai.errors import APIError
-from PIL import Image
-
-# ----------------------------------------------------
-# 0. 이미지 최적화 리사이즈 함수
-# ----------------------------------------------------
-def load_and_resize(image_file, max_size=(800, 800)):
-    """
-    고화질 이미지를 비율을 유지하면서 최대 800x800 해상도로 축소합니다.
-    """
-    img = Image.open(image_file)
-    if img.mode in ("RGBA", "P"):
-        img = img.convert("RGB")
-    img.thumbnail(max_size)
-    return img
-
-# ----------------------------------------------------
 # 1. 페이지 기본 설정
 # ----------------------------------------------------
 st.set_page_config(
@@ -67,12 +29,12 @@ st.title("🎨 노루페인트 워터큐(Water-Q) AI 스마트 조색 & 결함 �
 st.caption("Water-Q 칼라뱅크 시스템 전용 AI 미세 조색(Fine-Tuning) 및 현장 도장 결함 진단 리포트")
 
 # ----------------------------------------------------
-# 2. 사이드바 - API 키 및 카메라/시스템 설정
+# 2. 사이드바 - API 키 및 스마트폰/시스템 설정
 # ----------------------------------------------------
 with st.sidebar:
     st.header("⚙️ 시스템 및 기기 설정")
     
-    # 2-1. API 키 설정
+    # API 키 연동
     if "GEMINI_API_KEY" in st.secrets:
         api_key = st.secrets["GEMINI_API_KEY"]
         st.success("🔒 API 키가 연동되었습니다.")
@@ -81,37 +43,62 @@ with st.sidebar:
     
     st.markdown("---")
     
-    # 2-2. 스마트폰 카메라 기종 선택 기능 (추가된 부분)
+    # 스마트폰 제조사 & 기종 선택 (2015년 ~ 현재)
     st.subheader("📱 스마트폰 카메라 보정 설정")
-    camera_option = st.selectbox(
-        "촬영에 사용한 스마트폰 기종",
-        [
-            "iPhone 14 / 14 Pro (HDR/Warm tone 보정)",
-            "iPhone 15 / 15 Pro 시리즈",
-            "iPhone 13 및 이전 시리즈",
-            "Galaxy S23 / S24 시리즈 (명암비/채도 보정)",
-            "Galaxy S21 / S22 시리즈",
-            "기타 스마트폰 / 일반 디카",
-            "✍️ 직접 입력"
-        ],
-        index=0
-    )
     
-    if camera_option == "✍️ 직접 입력":
-        custom_camera = st.text_input("기기명 및 특이사항 직접 입력", placeholder="예: iPhone 12 Pro (조명 살짝 어두움)")
-        selected_camera = custom_camera if custom_camera.strip() else "기타 스마트폰"
+    brand = st.selectbox("제조사 선택", ["애플 (Apple)", "삼성 (Samsung)", "기타 / 직접 입력"])
+    
+    if brand == "애플 (Apple)":
+        phone_model = st.selectbox(
+            "상세 기종 선택 (2015년~현재)",
+            [
+                "iPhone 17 / Pro / Pro Max (2025/2026)",
+                "iPhone 16 / Plus / Pro / Pro Max (2024)",
+                "iPhone 15 / Plus / Pro / Pro Max (2023)",
+                "iPhone 14 / Plus / Pro / Pro Max (2022)",
+                "iPhone 13 / mini / Pro / Pro Max (2021)",
+                "iPhone 12 / mini / Pro / Pro Max (2020)",
+                "iPhone 11 / Pro / Pro Max (2019)",
+                "iPhone XS / XS Max / XR (2018)",
+                "iPhone X / 8 / 8 Plus (2017)",
+                "iPhone 7 / 7 Plus / SE (2016)",
+                "iPhone 6s / 6s Plus (2015)",
+            ],
+            index=3 # 기본값 iPhone 14
+        )
+        selected_camera = f"애플 {phone_model}"
+    elif brand == "삼성 (Samsung)":
+        phone_model = st.selectbox(
+            "상세 기종 선택 (2015년~현재)",
+            [
+                "Galaxy S26 / S26+ / S26 Ultra (2026)",
+                "Galaxy S25 / S25+ / S25 Ultra / Z Fold7 / Flip7 (2025)",
+                "Galaxy S24 / S24+ / S24 Ultra / Z Fold6 / Flip6 (2024)",
+                "Galaxy S23 / S23+ / S23 Ultra / Z Fold5 / Flip5 (2023)",
+                "Galaxy S22 / S22+ / S22 Ultra / Z Fold4 / Flip4 (2022)",
+                "Galaxy S21 / S21+ / S21 Ultra / Z Fold3 / Flip3 (2021)",
+                "Galaxy S20 시리즈 / Note 20 시리즈 / Z Fold2 / Flip (2020)",
+                "Galaxy S10 시리즈 / Note 10 시리즈 / Fold (2019)",
+                "Galaxy S9 / S9+ / Note 9 (2018)",
+                "Galaxy S8 / S8+ / Note 8 (2017)",
+                "Galaxy S7 / S7 Edge / Note 7 (2016)",
+                "Galaxy S6 / S6 Edge / Note 5 (2015)",
+            ]
+        )
+        selected_camera = f"삼성 {phone_model}"
     else:
-        selected_camera = camera_option.split(" (")[0] # 대표 기종명 추출
-        
-    st.info(f"현재 선택된 기기: **{selected_camera}**")
+        custom_input = st.text_input("기종명 직접 입력", value="기타 스마트폰")
+        selected_camera = custom_input
+
+    st.info(f"현재 카메라 보정 기종: **{selected_camera}**")
 
     st.markdown("---")
     st.markdown("### 📘 워터큐(Water-Q) 시스템 핵심 수칙")
     st.markdown("""
-    * **카메라 왜곡 보정**: 선택한 스마트폰 카메라의 이미지 프로세싱 왜곡을 보정하여 실제 육안 기준으로 색차 분석
-    * **델타 E (ΔE) 예측**: 도장 완료 시 목표 색상과의 예상 색차율 제공
-    * **Q-7000(표준백색)**: 배합 내 **10% 이상 사용 금지** (초과 시 고농도 백색 **Q-7800 / Q-7900** 교체 사용)
-    * **신규 안료 추가/제외**: 목표색 재현에 필요 시 Water-Q DB 기반 **신규 안료 적극 투입 및 불필요 안료 제외**
+    * **카메라 왜곡 보정**: 선택 기종 특유의 HDR/색감 왜곡을 역추정하여 실제 육안 기준 색차 분석
+    * **델타 E ($\Delta E$) 예측**: 도장 완료 시 목표 색상과의 예상 색차율 제공
+    * **Q-7000(표준백색)**: 배합 내 **10% 이상 사용 금지** (초과 시 고농도 백색 **Q-7800 / Q-7900** 교체)
+    * **신규 안료 추가/제외**: 필요 시 Water-Q DB 기반 **신규 안료 투입 및 불필요 안료 제외**
     """)
 
 if not api_key:
@@ -131,23 +118,21 @@ tab_tuning, tab_defect = st.tabs(["🎨 Water-Q AI 미세 조색 (Fine-Tuning)",
 # ====================================================
 with tab_tuning:
     st.header("🎨 워터큐(Water-Q) 전용 AI Fine-Tuning 조색")
-    st.write("목표 색상과 1차 시편, 현재 배합표, 그리고 원하시는 조색 총량을 입력해 주세요.")
+    st.write("목표 색상과 1차 시편, 현재 배합표, 원하시는 조색 총량을 입력해 주세요.")
 
-    # 1. 사진 2장 업로드 (목표 / 1차 시편)
     col_t1, col_t2 = st.columns(2)
     with col_t1:
         target_img_file = st.file_uploader("1. 목표 차체/판넬 사진 (Target)", type=["jpg", "png", "jpeg"], key="target_img")
         if target_img_file:
-            st.image(Image.open(target_img_file), caption=f"목표 색상 (Target) - {selected_camera} 촬영본", use_container_width=True)
+            st.image(Image.open(target_img_file), caption=f"목표 색상 (Target) - [{selected_camera}]", use_container_width=True)
 
     with col_t2:
         current_img_file = st.file_uploader("2. 1차 도장된 시편 사진 (Sample)", type=["jpg", "png", "jpeg"], key="current_img")
         if current_img_file:
-            st.image(Image.open(current_img_file), caption=f"1차 시편 (Sample) - {selected_camera} 촬영본", use_container_width=True)
+            st.image(Image.open(current_img_file), caption=f"1차 시편 (Sample) - [{selected_camera}]", use_container_width=True)
 
     st.markdown("---")
     
-    # 2. 배합 정보 입력 및 목표 총량 설정
     col_r1, col_r2 = st.columns([1.2, 0.8])
 
     with col_r1:
@@ -185,7 +170,7 @@ with tab_tuning:
         )
 
         lab_data = st.text_input(
-            "측색기 L*a*b* 수치 (선택 사항)",
+            "측색기 $L^*a*b^*$ 수치 (선택 사항)",
             placeholder="예: [목표] L*: 45.2, a*: 12.3 / [시편] L*: 43.8, a*: 13.5"
         )
 
@@ -196,9 +181,8 @@ with tab_tuning:
             if not recipe_img_file and not recipe_text.strip():
                 st.warning("⚠️ 1차 배합표 사진을 업로드하거나 텍스트를 입력해 주세요.")
             else:
-                with st.spinner(f"AI가 {selected_camera} 카메라 왜곡을 보정하며 목표 중량({target_total_weight}g) 맞춤 레시피를 계산 중입니다..."):
+                with st.spinner(f"AI가 [{selected_camera}] 카메라 특성을 보정하며 목표 중량({target_total_weight}g) 레시피를 계산 중입니다..."):
                     try:
-                        # 이미지 리사이즈
                         img_target = load_and_resize(target_img_file)
                         img_current = load_and_resize(current_img_file)
 
@@ -211,7 +195,6 @@ with tab_tuning:
                         else:
                             recipe_prompt_part = f"- 1차 배합 레시피: {recipe_text}"
 
-                        # 동적 기종 명시 시스템 프롬프트
                         waterq_system_prompt = f"""
                         당신은 노루페인트 '워터큐(Water-Q) 칼라뱅크 시스템' 최고의 기술 조색 전문가입니다.
                         첫 번째 이미지('목표 색상')와 두 번째 이미지('1차 도장 시편')를 비교 분석하여 최적의 보정 레시피를 제안해 주세요.
@@ -223,8 +206,8 @@ with tab_tuning:
                         - 측색기 수치 정보: {lab_data if lab_data else '없음 (이미지 시각 분석 기반)'}
 
                         [★ 스마트폰 카메라 왜곡 보정 ({selected_camera}) ★]
-                        업로드된 사진들은 **{selected_camera}** 기기로 촬영되었습니다. 
-                        해당 기기 특유의 이미지 프로세싱(자동 HDR, 명암비 강조, 소프트웨어 색감 보정, Sharpness 및 채도 변화 등)이 적용되어 있을 수 있습니다. 
+                        업로드된 사진들은 **{selected_camera}** 기기로 촬영되었습니다.
+                        해당 기기 특유의 이미지 프로세싱(자동 HDR, 명암비 강조, 소프트웨어 색감 보정, Sharpness 및 채도 변화 등)이 적용되어 있을 수 있습니다.
                         이를 감안하여 사진에 보이는 색상 그대로가 아닌, **실제 육안(Human Eye)으로 보았을 때의 색상, 명도, 입자감**을 역추정하여 정확히 분석하세요.
 
                         [★ 워터큐(Water-Q) 최적 배합 재구성 지침 ★]
@@ -247,15 +230,14 @@ with tab_tuning:
                            | 예: Q-5450 | 5.00 | +0.50 | 5.50 | 🔺 증량 (청색 보강) |
                            | **합계 (Total)** | **기존 총량** | - | **{target_total_weight}g** | **목표 총량 완벽 산출** |
 
-                        4. **🎯 예상 ΔE (색차) 및 육안 평가**: 
-                           - 이 레시피로 재도장 시 목표 색상과의 **예상 델타 E (ΔE) 수치**를 산출해 주세요.
-                           - 예시: "예상 ΔE: 0.4 (육안으로 식별이 거의 불가능한 수준)"
+                        4. **🎯 예상 $\Delta E$ (색차) 및 육안 평가**: 
+                           - 이 레시피로 재도장 시 목표 색상과의 **예상 델타 E ($\Delta E$) 수치**를 산출해 주세요.
+                           - 예시: "예상 $\Delta E$: 0.4 (육안으로 식별이 거의 불가능한 수준)"
                         5. **교반 및 현장 도장 주의사항**: (희석 비율, 건조 시 주의점)
                         """
 
                         contents_payload.append(waterq_system_prompt)
 
-                        # Gemini 3.5 Flash 구동
                         response = client.models.generate_content(
                             model="gemini-3.5-flash",
                             contents=contents_payload
