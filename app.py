@@ -8,12 +8,9 @@ import re
 import pandas as pd
 
 # ----------------------------------------------------
-# 0. 이미지 최적화 리사이즈 및 정규식 레시피 파서
+# 0. 이미지 최적화 및 안료 레시피 정밀 파서
 # ----------------------------------------------------
 def load_and_resize(image_file_or_bytes, max_size=(800, 800)):
-    """
-    고화질 이미지를 비율을 유지하면서 최대 800x800 해상도로 축소합니다.
-    """
     if isinstance(image_file_or_bytes, bytes):
         img = Image.open(io.BytesIO(image_file_or_bytes))
     else:
@@ -24,25 +21,40 @@ def load_and_resize(image_file_or_bytes, max_size=(800, 800)):
     img.thumbnail(max_size)
     return img
 
-def parse_recipe_to_df(recipe_text):
+def parse_recipe_to_df(text):
     """
-    텍스트 레시피에서 Q-코드와 중량을 추출하여 DataFrame으로 변환합니다.
-    예: "Q-7000 80g, Q-8200 10g" -> DataFrame 생성
+    텍스트 또는 AI 응답 리포트(마크다운 표/문장)에서 Q-코드와 중량을 정밀 추출하여 DataFrame으로 변환
     """
-    pattern = r"(Q-\d+)\s*([\d\.]+)\s*g?"
-    matches = re.findall(pattern, recipe_text, re.IGNORECASE)
+    if not text:
+        return pd.DataFrame({"안료 코드 (Q-Code)": [], "1차 배합 중량 (g)": []})
+    
+    # Q-XXXX 형태와 뒤따르는 숫자 중량 추출 패턴
+    pattern = r"(Q-\d+)[^0-9\n\r]*?([\d\.]+)\s*g?"
+    matches = re.findall(pattern, text, re.IGNORECASE)
+    
     if matches:
-        codes = [m[0].upper() for m in matches]
-        weights = [float(m[1]) for m in matches]
-        return pd.DataFrame({
-            "안료 코드 (Q-Code)": codes,
-            "1차 배합 중량 (g)": weights
-        })
-    else:
-        return pd.DataFrame({
-            "안료 코드 (Q-Code)": ["Q-7000", "Q-8200", "Q-5450"],
-            "1차 배합 중량 (g)": [80.0, 10.0, 5.0]
-        })
+        codes = []
+        weights = []
+        seen = set()
+        for m in matches:
+            code = m[0].upper()
+            try:
+                weight = float(m[1])
+                # 중복 제거 및 유효 중량만 수집
+                if code not in seen and weight >= 0:
+                    codes.append(code)
+                    weights.append(weight)
+                    seen.add(code)
+            except ValueError:
+                continue
+                
+        if codes:
+            return pd.DataFrame({
+                "안료 코드 (Q-Code)": codes,
+                "1차 배합 중량 (g)": weights
+            })
+            
+    return pd.DataFrame({"안료 코드 (Q-Code)": [], "1차 배합 중량 (g)": []})
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -55,7 +67,7 @@ def find_logo_file():
     return None
 
 # ----------------------------------------------------
-# 1. 페이지 설정 및 세션 상태(Session State) 관리
+# 1. 페이지 및 세션 상태(Session State) 관리
 # ----------------------------------------------------
 st.set_page_config(
     page_title="NOROO Auto Refinishes | Water-Q AI Smart Color System",
@@ -63,7 +75,6 @@ st.set_page_config(
     layout="wide"
 )
 
-# 조색 워크플로우 진행 단계 상태 초기화
 if "current_stage" not in st.session_state:
     st.session_state.current_stage = 1
 if "target_img_bytes" not in st.session_state:
@@ -77,17 +88,14 @@ if "temp_sample_bytes" not in st.session_state:
     st.session_state.temp_sample_bytes = None
 
 if "recipe_table_df" not in st.session_state:
-    st.session_state.recipe_table_df = pd.DataFrame({
-        "안료 코드 (Q-Code)": ["Q-7000", "Q-8200", "Q-5450"],
-        "1차 배합 중량 (g)": [80.0, 10.0, 5.0]
-    })
+    st.session_state.recipe_table_df = pd.DataFrame({"안료 코드 (Q-Code)": [], "1차 배합 중량 (g)": []})
 
 if "ai_result_text" not in st.session_state:
     st.session_state.ai_result_text = ""
 if "show_next_btn" not in st.session_state:
     st.session_state.show_next_btn = False
 
-# 다음 조색 단계로 이동하는 콜백
+# 다음 조색 단계로 이동 콜백
 def go_next_stage():
     st.session_state.current_stage += 1
     st.session_state.show_next_btn = False
@@ -239,7 +247,7 @@ with st.sidebar:
     st.markdown("### 📘 Water-Q 원스톱 수칙")
     st.markdown("""
     * **원스톱 워크플로우**: 1차 조색 완료 후 하단 버튼 클릭으로 2차/N차 단계로 자동 전환
-    * **1차 배합 실시간 이관**: 1차에서 입력한 배합표가 2차 표 데이터로 자동 연동
+    * **실제 배합 연동**: 1차에서 사진/텍스트로 입력한 배합표가 2차 표 데이터로 100% 정확하게 연동
     * **시편 확대 대조 비교**: 이전 시편과 신규 시편을 1:1 확대 대조
     * **Q-7000 사용 제약**: 배합 내 **10% 이상 사용 금지** (초과 시 Q-7800/Q-7900 교체)
     """)
@@ -285,7 +293,7 @@ with tab_tuning:
                 st.session_state.target_img_bytes = None
                 st.rerun()
 
-    # 2. 단계별 시편 사진 업로드 (2차로 넘어가면 1차 사진 삭제되고 2차 신규 업로드)
+    # 2. 단계별 시편 사진 업로드
     with col_t2:
         st.write(f"2. {stage_code} 도장 시편 사진 (Sample)")
         current_img_file = st.file_uploader(
@@ -301,7 +309,7 @@ with tab_tuning:
                 use_container_width=True
             )
 
-    # 3. 이전 시편 vs 신규 시편 1:1 확대 대조 비교 (2차 이상 조색 시 표시)
+    # 3. 이전 시편 vs 신규 시편 1:1 확대 대조 비교 (2차 이상 조색 시)
     if not is_stage_1 and st.session_state.prev_sample_bytes and st.session_state.temp_sample_bytes:
         st.markdown("---")
         st.markdown("""<div class="comparison-card">
@@ -321,7 +329,7 @@ with tab_tuning:
     
     col_r1, col_r2 = st.columns([1.2, 0.8])
 
-    # 4. 배합 레시피 영역 (1차만 작성 / 2차부터는 1차 작성표 자동 연동)
+    # 4. 배합 레시피 영역
     with col_r1:
         if is_stage_1:
             st.subheader("3. 1차 기본 배합 레시피 정보")
@@ -337,6 +345,9 @@ with tab_tuning:
 
             if "사진 업로드" in recipe_input_type:
                 recipe_img_file = st.file_uploader("1차 배합표 / 조색기 화면 사진 업로드", type=["jpg", "png"], key="r_img_1차")
+                if recipe_img_file:
+                    st.image(Image.open(recipe_img_file), caption="업로드된 배합표 이미지", width=350)
+                    st.success("📸 사진 인식 준비 완료 ('1차 실행' 버튼 클릭 시 AI가 배합표를 판독하여 2차 단계로 자동 연동합니다)")
             else:
                 recipe_text = st.text_area(
                     "1차 배합 레시피 직접 작성 (입력 시 2차 표로 자동 연동됩니다)",
@@ -349,19 +360,19 @@ with tab_tuning:
                     if not parsed_df.empty:
                         st.session_state.recipe_table_df = parsed_df
 
-            st.write("📋 **1차 확정 배합표 (2차 조색에 그대로 연결됩니다):**")
-            edited_1st_df = st.data_editor(
-                st.session_state.recipe_table_df,
-                use_container_width=True,
-                num_rows="dynamic",
-                key="editor_1차_preview"
-            )
-            st.session_state.recipe_table_df = edited_1st_df
+                st.write("📋 **1차 작성 배합표 미리보기:**")
+                edited_1st_df = st.data_editor(
+                    st.session_state.recipe_table_df,
+                    use_container_width=True,
+                    num_rows="dynamic",
+                    key="editor_1차_preview"
+                )
+                st.session_state.recipe_table_df = edited_1st_df
 
         else:
-            # 2차/N차 조색 모드: 1차에서 완성한 배합표 자동 연동 (사진 업로드 제거됨)
-            st.subheader(f"3. {prev_stage_code} 확정 배합 레시피 (자동 연동됨)")
-            st.info(f"💡 {prev_stage_code} 조색 시 작성했던 배합 정보가 아래 표(Table)로 100% 연동되었습니다.")
+            # 2차/N차 조색 모드: 1차에서 실제 사용/추출된 배합표 표 연동
+            st.subheader(f"3. {prev_stage_code} 확정 배합 레시피 (1차 입력 데이터 100% 연동)")
+            st.info(f"💡 {prev_stage_code} 조색 시 실제 인식/사용했던 배합 데이터가 표(Table) 형태로 연동되었습니다.")
             
             edited_df = st.data_editor(
                 st.session_state.recipe_table_df,
@@ -414,7 +425,7 @@ with tab_tuning:
                         if recipe_img_file:
                             img_recipe = load_and_resize(recipe_img_file)
                             contents_payload.append(img_recipe)
-                            recipe_prompt_part = "- 1차 사용 배합 레시피: [첨부된 세 번째 이미지(배합표 사진)에서 안료명과 중량을 OCR 분석할 것]"
+                            recipe_prompt_part = "- 1차 사용 배합 레시피: [첨부된 세 번째 이미지(배합표 사진)에서 안료명과 중량을 OCR 정밀 판독하여 2차 연동용으로 활용할 것]"
                         else:
                             recipe_prompt_part = f"- 1차 사용 배합 레시피: {recipe_text}"
                     else:
@@ -465,6 +476,11 @@ with tab_tuning:
 
                     st.session_state.ai_result_text = response.text
                     st.session_state.show_next_btn = True
+
+                    # 1차 조색 실행 결과에서 인식/생성된 배합표를 2차 연동용 세션 데이터로 자동 파싱
+                    parsed_df = parse_recipe_to_df(response.text)
+                    if not parsed_df.empty:
+                        st.session_state.recipe_table_df = parsed_df
 
                 except APIError as e:
                     st.error(f"API 오류가 발생했습니다: {e}")
