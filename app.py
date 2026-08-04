@@ -9,7 +9,7 @@ import json
 import pandas as pd
 
 # ----------------------------------------------------
-# 0. 이미지 최적화, 정밀 파서 및 모바일 크롭
+# 0. 이미지 최적화, 정밀 JSON/텍스트 파서 및 모바일 크롭
 # ----------------------------------------------------
 def load_and_resize(image_file_or_bytes, max_size=(800, 800)):
     if isinstance(image_file_or_bytes, bytes):
@@ -24,7 +24,7 @@ def load_and_resize(image_file_or_bytes, max_size=(800, 800)):
 
 def crop_center_zoom(image_file_or_bytes, crop_ratio=0.4):
     """
-    모바일 화면 최적화를 위해 이미지의 중앙 영역(15cm 거리 촬영 시 입자 밀집 부위)만
+    모바일 화면 최적화를 위해 이미지의 중앙 영역(입자/색상 밀집 부위)만
     정밀 크롭(Zoom-in)하여 반환합니다.
     """
     if isinstance(image_file_or_bytes, bytes):
@@ -45,9 +45,6 @@ def crop_center_zoom(image_file_or_bytes, crop_ratio=0.4):
     return img.crop((left, top, right, bottom))
 
 def extract_recipe_df_from_ai_text(text):
-    """
-    AI 응답의 JSON 블록 또는 마크다운 표에서 1차 배합 안료와 중량을 정밀 추출
-    """
     if not text:
         return None
     
@@ -93,9 +90,6 @@ def extract_recipe_df_from_ai_text(text):
     return None
 
 def extract_df_from_recipe_image(client, image_bytes):
-    """
-    Gemini 비전 API를 이용해 카드 사진에서 안료 코드와 소용량 기준 중량을 읽어와 DataFrame 생성
-    """
     try:
         img = load_and_resize(image_bytes)
         prompt = """
@@ -159,11 +153,14 @@ if "ai_result_text" not in st.session_state:
     st.session_state.ai_result_text = ""
 if "show_next_btn" not in st.session_state:
     st.session_state.show_next_btn = False
+if "is_passed" not in st.session_state:
+    st.session_state.is_passed = False
 
 def go_next_stage():
     st.session_state.current_stage += 1
     st.session_state.show_next_btn = False
     st.session_state.ai_result_text = ""
+    st.session_state.is_passed = False
     if st.session_state.temp_sample_bytes is not None:
         st.session_state.prev_sample_bytes = st.session_state.temp_sample_bytes
         st.session_state.temp_sample_bytes = None
@@ -318,11 +315,11 @@ with st.sidebar:
     selected_camera = f"{brand} {phone_model}"
 
     st.markdown("---")
-    st.markdown("### 📘 Water-Q 표준 촬영 수칙")
+    st.markdown("### 📘 Water-Q 원스톱 수칙")
     st.markdown("""
-    * **표준 촬영 거리 15cm**: 메탈릭/펄 알갱이 입자 균일도 분석을 위해 **15cm 거리 유지** 필수
-    * **직각(90°) 각도**: 광각 렌즈 테두리 왜곡 방지를 위해 **표면과 정직각** 유지
-    * **그림자 방지**: 스마트폰 기기 자체 그림자가 차체를 가리지 않도록 상단/측면 조명 활용
+    * **자동 합격(Auto-Stop) 제어**: Delta E($\Delta E$) $\le 1.0$ 도달 시 추가 조색을 즉시 종료하고 최종 확정
+    * **사진 읽기 연동**: 사진 업로드 후 인식 버튼을 누르면 안료와 수치가 표에 연동
+    * **모바일 확대 크롭 비교**: 시편 입자감과 색차를 모바일에서도 쉽게 비교할 수 있도록 중심부 크롭 연동
     * **Q-7000 사용 제약**: 배합 내 **10% 이상 사용 금지** (초과 시 Q-7800/Q-7900 교체)
     """)
 
@@ -407,12 +404,12 @@ with tab_tuning:
                 use_container_width=True
             )
 
-    # 3. [15cm 촬영 기반] 이전 시편 vs 신규 시편 중앙 크롭 정밀 확대 대조 (2차 이상 조색 시)
+    # 3. [모바일 최적화] 이전 시편 vs 신규 시편 중앙 크롭 정밀 확대 대조 (2차 이상 조색 시)
     if not is_stage_1 and st.session_state.prev_sample_bytes and st.session_state.temp_sample_bytes:
         st.markdown("---")
         st.markdown("""<div class="comparison-card">
             <h4 style="margin-top:0; color:#003375;">📱 15cm 정밀 정격 촬영: 시편 입자 & 색상 확대 비교 (Zoom-in Crop)</h4>
-            <p style="font-size:13px; color:#4A5568;">15cm 거리에서 일관되게 촬영된 시편의 중앙 입자감(펄/메탈릭) 및 미세 색차를 1:1 확대 대조합니다.</p>
+            <p style="font-size:13px; color:#4A5568;">15cm 거리에서 일관되게 촬영된 시편의 중앙 입자감(펄/메탈릭) 및 미세 색차가 1:1 확대 대조됩니다.</p>
         </div>""", unsafe_allow_html=True)
         
         c_comp1, c_comp2 = st.columns(2)
@@ -525,7 +522,7 @@ with tab_tuning:
         elif is_stage_1 and st.session_state.recipe_table_df.empty:
             st.warning("⚠️ 배합표 카드를 촬영 후 [사진에서 배합표 읽어오기] 버튼을 누르거나 텍스트를 입력해 주세요.")
         else:
-            with st.spinner(f"AI가 [15cm 표준 촬영 보정 적용] 모드로 {prev_stage_code} 배합표와 {stage_code} 시편 오차를 분석하여 신규 대조표를 산출 중입니다..."):
+            with st.spinner(f"AI가 [Auto-Stop 판정 알고리즘 적용] 모드로 {prev_stage_code} 배합표와 {stage_code} 시편 오차를 정밀 분석 중입니다..."):
                 try:
                     img_target = load_and_resize(st.session_state.target_img_bytes)
                     img_current = load_and_resize(st.session_state.temp_sample_bytes)
@@ -537,7 +534,7 @@ with tab_tuning:
 
                     waterq_system_prompt = f"""
                     당신은 노루페인트 '워터큐(Water-Q) 칼라뱅크 시스템' 최고의 기술 조색 전문가입니다.
-                    첫 번째 이미지('목표 색상')와 두 번째 이미지('{stage_code} 도장 시편')를 비교 분석하여, **새로 조색할 {stage_code} 신규 전체 배합 레시피(100% 비율)**를 제안해 주세요.
+                    첫 번째 이미지('목표 색상')와 두 번째 이미지('{stage_code} 도장 시편')를 정밀 비교 분석하세요.
 
                     [진행 단계 및 입력 데이터]
                     - **현재 조색 진행 단계**: {stage_code} 조색
@@ -547,26 +544,31 @@ with tab_tuning:
                     - **촬영 기기 정보**: {selected_camera}
                     - 측색기 수치 정보: {lab_data if lab_data else '없음 (이미지 시각 분석 기반)'}
 
-                    [★ {stage_code} 신규 재배합 및 시각적 대조표 지침 ★]
-                    1. 기존 배합에 덧붓는 방식이 아닙니다. {prev_stage_code} 레시피로 도장한 시편과 목표 색상의 차이(명도, 색상, 채도, 입자감, Flop 감도)를 정밀 분석하여 **새 용기에 새로 조색할 목표 총 중량({target_total_weight}g) 기준의 신규 전체 배합표**를 산출하세요.
-                    2. **시각적 대조표 필수 작성**: {prev_stage_code} 배합 중량과 {stage_code} 신규 배합 중량을 대조하여 각 안료의 가감 변화량(+g / -g)과 처방 역할을 표(Table)로 명확히 보여주세요.
-                    3. {prev_stage_code} 배합에서 부족했던 색조 및 입자감은 비율을 높이고, 오차를 유발한 안료는 감량하거나 제외(0g) 처리하세요. 필요 시 워터큐 DB 중 최적 안료를 신규 투입하세요.
-                    4. 백색 규정(Q-7000 10% 이내 사용, 초과 시 Q-7800/7900 사용) 및 메탈릭 조색 시 Q-3550 금지 수칙을 철저히 준수하세요.
+                    [★ 핵심: 자동 합격(Auto-Stop) 및 Delta E 판정 규칙 ★]
+                    1. 두 이미지(목표 색상 vs {stage_code} 시편)를 비교하여 예상 **Delta E ($\Delta E$) 수치**를 엄격히 산출하세요.
+                    2. 동일한 사진이 업로드되었거나, 육안/시각적으로 목표 색상과 오차가 거의 없는 경우 **예상 $\Delta E \le 1.0$** 으로 판단하세요.
+                    3. **$\Delta E \le 1.0$ 일 경우**:
+                       - 리포트 제목 하단에 **`[판정: 🎉 조색 완벽 합격 (추가 보정 불필요)]`** 라는 문구를 반드시 포함하세요.
+                       - 신규 배합 가감표에서 추가 투입/감량 없이 **현재 레시피 유지(0.00g 변동)**로 최종 확정하세요.
+                    4. **$\Delta E > 1.0$ 일 경우**:
+                       - 리포트 제목 하단에 **`[판정: 🔺 추가 미세 보정 필요]`** 문구를 포함하고 기존 수칙에 따라 신규 배합표를 산출하세요.
+
+                    [★ 규칙 ★]
+                    - 백색 규정(Q-7000 10% 이내 사용, 초과 시 Q-7800/7900 사용) 및 메탈릭 조색 시 Q-3550 금지 수칙 준수.
 
                     [작성 양식]
-                    1. **실제 육안(Human Eye) 기준 색상 및 {stage_code} 오차 정밀 분석**: ({selected_camera} 특성 보정 후 명도, 색상, 입자감, Flop 차이 분석)
-                    2. **{stage_code} 배합 변경 처방 이유**: ({prev_stage_code} 배합 대비 안료 비율 수정 이유 및 신규 추가/제외 안료 설명)
-                    3. **📊 Water-Q AI {prev_stage_code} vs {stage_code} 신규 배합 대조표 (목표 총량 {target_total_weight}g 기준)**:
-                       - 반드시 아래 마크다운 표 형식으로 작성하세요.
+                    1. **판정 및 Delta E 수치**: 
+                       - **예상 $\Delta E$**: x.xx
+                       - **최종 판정**: [판정: 🎉 조색 완벽 합격 (추가 보정 불필요)] 또는 [판정: 🔺 추가 미세 보정 필요]
+                    2. **실제 육안(Human Eye) 기준 색상 및 {stage_code} 오차 정밀 분석**: ({selected_camera} 특성 보정 후 명도, 색상, 입자감, Flop 차이 분석)
+                    3. **{stage_code} 배합 변경 처방 이유**: ({prev_stage_code} 배합 대비 안료 비율 수정 이유 설명)
+                    4. **📊 Water-Q AI {prev_stage_code} vs {stage_code} 신규 배합 대조표 (목표 총량 {target_total_weight}g 기준)**:
                        
                        | 안료 코드 (Q-Code) | {prev_stage_code} 배합 중량 (g) | {stage_code} 신규 배합 중량 (g) | 가감 차이 (g) | 처방 역할 및 상태 |
                        | :--- | :--- | :--- | :--- | :--- |
-                       | 예: Q-9760 | 88.00 | 90.00 | +2.00 | 🔺 정면 명도 보강 |
-                       | 예: Q-9800 | 60.31 | 60.31 | 0.00 | ➖ 유지 |
-                       | **합계 (Total)** | **{prev_stage_code} 총량** | **{target_total_weight}g** | **-** | **{stage_code} 100% 신규 완벽 배합** |
+                       | 예: Q-9760 | 88.00 | 88.00 | 0.00 | ➖ 현재 레시피 유지 (합격) |
+                       | **합계 (Total)** | **{prev_stage_code} 총량** | **{target_total_weight}g** | **-** | **최종 확정 배합** |
 
-                    4. **🎯 예상 $\Delta E$ (색차) 및 육안 평가**: 
-                       - 이번 {stage_code} 레시피로 재도장 시 예상되는 **델타 E ($\Delta E$) 수치** 표기 (예: "예상 $\Delta E$: 0.35 (매우 우수)")
                     5. **교반 및 도장 주의사항**: (희석 비율, 노즐 거리, 건조 수칙)
                     """
 
@@ -578,7 +580,14 @@ with tab_tuning:
                     )
 
                     st.session_state.ai_result_text = response.text
-                    st.session_state.show_next_btn = True
+                    
+                    # 합격 여부 자동 판단 (Auto-Stop)
+                    if "조색 완벽 합격" in response.text or "추가 보정 불필요" in response.text:
+                        st.session_state.is_passed = True
+                        st.session_state.show_next_btn = False
+                    else:
+                        st.session_state.is_passed = False
+                        st.session_state.show_next_btn = True
 
                     # 1차 실행 결과에서 파싱된 안료표를 2차 세션 데이터로 연동
                     parsed_df = extract_recipe_df_from_ai_text(response.text)
@@ -588,12 +597,18 @@ with tab_tuning:
                 except APIError as e:
                     st.error(f"API 오류가 발생했습니다: {e}")
 
-    # 6. 결과 출력 및 '다음 단계 진행' 연속성 버튼
+    # 6. 결과 출력 및 '다음 단계 진행' 연속성 버튼 제어
     if st.session_state.ai_result_text:
         st.markdown("### 📊 AI 조색 분석 및 대조 리포트")
         st.markdown(st.session_state.ai_result_text)
 
-    if st.session_state.show_next_btn:
+        # 합격 시 축하 효과 및 자동 종료 안내
+        if st.session_state.is_passed:
+            st.balloons()
+            st.success("🎉 목표 색상과의 색차가 기준치($\Delta E \le 1.0$) 이하로 측정되어 조색이 완벽하게 완료되었습니다! 더 이상 추가 조색을 진행하지 않고 현재 배합을 최종 확정합니다.")
+
+    # 미합격시에만 다음 단계 계속 진행 버튼 노출
+    if st.session_state.show_next_btn and not st.session_state.is_passed:
         st.markdown("---")
         st.info(f"💡 {stage_code} 도장 후 색상 매칭률이 아직 부족하다면, 하단 버튼을 클릭하여 방금 완료된 배합을 바탕으로 {current_stage + 1}차 조색을 즉시 진행하세요.")
         st.button(
