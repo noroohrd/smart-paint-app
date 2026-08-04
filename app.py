@@ -66,7 +66,7 @@ tab_tuning, tab_defect = st.tabs(["🎨 Water-Q AI 미세 조색 (Fine-Tuning)",
 # ====================================================
 with tab_tuning:
     st.header("🎨 워터큐(Water-Q) 전용 AI Fine-Tuning 조색")
-    st.write("목표 색상과 1차 시편, 그리고 현재 배합표(사진 또는 텍스트)를 입력해 주세요.")
+    st.write("목표 색상과 1차 시편, 현재 배합표, 그리고 원하시는 조색 총량을 입력해 주세요.")
 
     # 1. 사진 2장 업로드 (목표 / 1차 시편)
     col_t1, col_t2 = st.columns(2)
@@ -82,50 +82,64 @@ with tab_tuning:
 
     st.markdown("---")
     
-    # 2. 배합 정보 입력 (사진 업로드 OR 텍스트 입력 선택)
-    st.subheader("3. 현재 1차 배합 레시피 정보")
-    
-    recipe_input_type = st.radio(
-        "배합표 입력 방식을 선택하세요:",
-        ["📸 배합표 사진 업로드 (추천)", "✍️ 텍스트 직접 입력"],
-        horizontal=True
-    )
+    # 2. 배합 정보 입력 및 목표 총량 설정
+    col_r1, col_r2 = st.columns([1.2, 0.8])
 
-    recipe_img_file = None
-    recipe_text = ""
-
-    if "사진 업로드" in recipe_input_type:
-        recipe_img_file = st.file_uploader("1차 배합표 / 조색기 화면 / 손글씨 레시피 사진 업로드", type=["jpg", "png", "jpeg"], key="recipe_img")
-        if recipe_img_file:
-            st.image(Image.open(recipe_img_file), caption="업로드된 배합표 이미지", width=400)
-    else:
-        recipe_text = st.text_area(
-            "1차 배합 레시피 직접 작성",
-            value="Q-7000 80g, Q-8200 10g, Q-5450 5g, Q-9500 5g",
-            placeholder="예: Q-7000 100g, Q-5450 12g, Q-8200 1.5g..."
+    with col_r1:
+        st.subheader("3. 현재 1차 배합 레시피 정보")
+        recipe_input_type = st.radio(
+            "배합표 입력 방식을 선택하세요:",
+            ["📸 배합표 사진 업로드 (추천)", "✍️ 텍스트 직접 입력"],
+            horizontal=True
         )
 
-    # 3. LAB 데이터 수치 (선택)
-    lab_data = st.text_input(
-        "4. 측색기 $L^*a*b^*$ 수치 (선택 사항)",
-        placeholder="예: [목표] L*: 45.2, a*: 12.3, b*: -5.1 / [시편] L*: 43.8, a*: 13.5, b*: -4.2"
-    )
+        recipe_img_file = None
+        recipe_text = ""
+
+        if "사진 업로드" in recipe_input_type:
+            recipe_img_file = st.file_uploader("1차 배합표 / 조색기 화면 / 손글씨 레시피 사진 업로드", type=["jpg", "png", "jpeg"], key="recipe_img")
+            if recipe_img_file:
+                st.image(Image.open(recipe_img_file), caption="업로드된 배합표 이미지", width=350)
+        else:
+            recipe_text = st.text_area(
+                "1차 배합 레시피 직접 작성",
+                value="Q-7000 80g, Q-8200 10g, Q-5450 5g, Q-9500 5g",
+                placeholder="예: Q-7000 100g, Q-5450 12g, Q-8200 1.5g..."
+            )
+
+    with col_r2:
+        st.subheader("4. 조색 중량 및 측색 데이터")
+        
+        # ★ 원하는 조색 총 중량 설정 기능 ★
+        target_total_weight = st.number_input(
+            "🎯 목표 조색 총 중량 (g)",
+            min_value=10.0,
+            max_value=10000.0,
+            value=100.0,
+            step=10.0,
+            help="원하시는 총 도료 조색 중량을 입력하시면 AI가 해당 중량에 맞춰 배합량을 정밀 계산합니다."
+        )
+
+        lab_data = st.text_input(
+            "측색기 $L^*a*b^*$ 수치 (선택 사항)",
+            placeholder="예: [목표] L*: 45.2, a*: 12.3 / [시편] L*: 43.8, a*: 13.5"
+        )
+
+    st.markdown("---")
 
     if st.button("🚀 Water-Q AI 미세 조색 실행", type="primary", use_container_width=True):
         if target_img_file and current_img_file:
             if not recipe_img_file and not recipe_text.strip():
                 st.warning("⚠️ 1차 배합표 사진을 업로드하거나 텍스트를 입력해 주세요.")
             else:
-                with st.spinner("AI가 워터큐(Water-Q) 안료 DB 및 공식 조색 지침을 바탕으로 보정량을 계산 중입니다..."):
+                with st.spinner(f"AI가 목표 중량({target_total_weight}g)에 맞춰 워터큐 보정 레시피 표를 생성 중입니다..."):
                     try:
                         # 이미지 리사이즈
                         img_target = load_and_resize(target_img_file)
                         img_current = load_and_resize(current_img_file)
 
-                        # 프롬프트 및 전송 컨텐츠 구성
                         contents_payload = [img_target, img_current]
 
-                        recipe_prompt_part = ""
                         if recipe_img_file:
                             img_recipe = load_and_resize(recipe_img_file)
                             contents_payload.append(img_recipe)
@@ -135,10 +149,11 @@ with tab_tuning:
 
                         waterq_system_prompt = f"""
                         당신은 노루페인트 '워터큐(Water-Q) 칼라뱅크 시스템' 최고의 기술 조색 전문가입니다.
-                        첫 번째 이미지('목표 색상')와 두 번째 이미지('1차 도장 시편')를 비교 분석하고 보정 레시피를 제안하세요.
+                        첫 번째 이미지('목표 색상')와 두 번째 이미지('1차 도장 시편')를 비교 분석하여 보정 레시피를 제안해 주세요.
 
-                        [입력 정보]
+                        [입력 데이터 및 조건]
                         {recipe_prompt_part}
+                        - **목표 조색 총 중량**: {target_total_weight}g (반드시 이 총 중량 비율 기준으로 가감량을 계산할 것)
                         - 측색기 수치 정보: {lab_data if lab_data else '없음 (이미지 시각 분석 기반)'}
 
                         [★ 워터큐(Water-Q) 공식 칼라가이드 필수 규정 ★]
@@ -151,9 +166,16 @@ with tab_tuning:
 
                         [작성 양식]
                         1. **색상 차이 및 정면/측면(Face/Flop) 정밀 분석**: (명도, 색상, 채도, 입자감 차이)
-                        2. **보정 방향성**: (어떤 원색/메탈릭/펄을 보강해야 하는지 설명)
-                        3. **추가 투입 워터큐 레시피 (0.01g 단위 표기)**:
-                           - 예: Q-7800(고농도백색) +0.15g, Q-5450(청색) +0.03g, Q-9500(실버) +0.08g
+                        2. **보정 방향성 요약**: (어떤 원색/메탈릭/펄을 보강해야 하는지 핵심 정리)
+                        3. **📊 Water-Q 미세 조색 비교표 (목표 총량 {target_total_weight}g 기준)**:
+                           - 기존 배합과 추가 투입량, 최종 배합 중량을 한눈에 비교할 수 있도록 **반드시 아래 마크다운 표 형식으로 작성**해 주세요.
+                           
+                           | 안료 코드 (Q-Code) | 1차 배합 중량 (g) | 추가 투입량 (g) | 최종 보정 중량 (g) | 비고 및 보정 역할 |
+                           | :--- | :--- | :--- | :--- | :--- |
+                           | 예: Q-7800 | 0.00 | +0.15 | 0.15 | 고농도 백색 / 명도 상승 |
+                           | 예: Q-5450 | 5.00 | +0.03 | 5.03 | 청색 보강 |
+                           | **합계 (Total)** | **{target_total_weight}g 전후** | **+0.xxg** | **{target_total_weight}g** | **목표 총량 달성** |
+
                         4. **교반 및 현장 도장 주의사항**: (희석 비율, 스프레이 노즐 및 건조 시 주의점)
                         """
 
@@ -165,7 +187,7 @@ with tab_tuning:
                             contents=contents_payload
                         )
 
-                        st.success("🎉 Water-Q 보정 레시피 산출 완료!")
+                        st.success(f"🎉 목표 중량 {target_total_weight}g 기준 Water-Q 보정 레시피 표 산출 완료!")
                         st.markdown(response.text)
 
                     except APIError as e:
