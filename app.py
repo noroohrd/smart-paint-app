@@ -9,7 +9,7 @@ import json
 import pandas as pd
 
 # ----------------------------------------------------
-# 0. 이미지 최적화, 정밀 JSON/텍스트 파서 및 모바일 크롭
+# 0. 이미지 최적화, 정밀 파서 및 모바일 크롭
 # ----------------------------------------------------
 def load_and_resize(image_file_or_bytes, max_size=(800, 800)):
     if isinstance(image_file_or_bytes, bytes):
@@ -24,7 +24,7 @@ def load_and_resize(image_file_or_bytes, max_size=(800, 800)):
 
 def crop_center_zoom(image_file_or_bytes, crop_ratio=0.4):
     """
-    모바일 화면 최적화를 위해 이미지의 중앙 영역(입자/색상 밀집 부위)만
+    모바일 화면 최적화를 위해 이미지의 중앙 영역(15cm 거리 촬영 시 입자 밀집 부위)만
     정밀 크롭(Zoom-in)하여 반환합니다.
     """
     if isinstance(image_file_or_bytes, bytes):
@@ -51,7 +51,6 @@ def extract_recipe_df_from_ai_text(text):
     if not text:
         return None
     
-    # 1. JSON 블록 정밀 추출 시도
     try:
         json_match = re.search(r"```json\s*(\{.*?\})\s*```", text, re.DOTALL)
         if not json_match:
@@ -69,7 +68,6 @@ def extract_recipe_df_from_ai_text(text):
     except Exception:
         pass
 
-    # 2. 텍스트 정규식 파싱 시도 (백업)
     pattern = r"(Q-\d{3,4})\s*[:\=\|\s]+([\d\.]+)\s*g?"
     matches = re.findall(pattern, text, re.IGNORECASE)
     if matches:
@@ -144,14 +142,13 @@ if "current_stage" not in st.session_state:
 if "target_img_bytes" not in st.session_state:
     st.session_state.target_img_bytes = None
 if "target_img_name" not in st.session_state:
-    st.session_state.target_img_name = None
+    st.session_state.target_img_name = "카메라 직촬 Target"
 
 if "prev_sample_bytes" not in st.session_state:
     st.session_state.prev_sample_bytes = None
 if "temp_sample_bytes" not in st.session_state:
     st.session_state.temp_sample_bytes = None
 
-# [핵심 수정] 가짜 더미 데이터를 완전히 삭제하고 빈 표준 구조로 초기화
 if "recipe_table_df" not in st.session_state:
     st.session_state.recipe_table_df = pd.DataFrame({
         "안료 코드 (Q-Code)": ["", "", "", ""],
@@ -213,6 +210,16 @@ st.markdown("""<style>
         font-size: 15px;
         display: inline-block;
         margin-bottom: 15px;
+    }
+
+    .distance-guide-box {
+        background-color: #EBF8FF;
+        border-left: 4px solid #3182CE;
+        padding: 10px 14px;
+        border-radius: 6px;
+        font-size: 13px;
+        color: #2B6CB0;
+        margin-bottom: 12px;
     }
 
     .comparison-card {
@@ -311,11 +318,11 @@ with st.sidebar:
     selected_camera = f"{brand} {phone_model}"
 
     st.markdown("---")
-    st.markdown("### 📘 Water-Q 원스톱 수칙")
+    st.markdown("### 📘 Water-Q 표준 촬영 수칙")
     st.markdown("""
-    * **사진 읽기 연동**: 사진 업로드 후 인식 버튼을 누르면 안료와 수치가 표에 정확히 연동됩니다.
-    * **모바일 확대 크롭 비교**: 시편 입자감과 색차를 모바일에서도 쉽게 비교할 수 있도록 중심부 크롭 연동
-    * **원스톱 워크플로우**: 1차 완료 후 하단 버튼 클릭으로 2차/N차 단계 자동 전환
+    * **표준 촬영 거리 15cm**: 메탈릭/펄 알갱이 입자 균일도 분석을 위해 **15cm 거리 유지** 필수
+    * **직각(90°) 각도**: 광각 렌즈 테두리 왜곡 방지를 위해 **표면과 정직각** 유지
+    * **그림자 방지**: 스마트폰 기기 자체 그림자가 차체를 가리지 않도록 상단/측면 조명 활용
     * **Q-7000 사용 제약**: 배합 내 **10% 이상 사용 금지** (초과 시 Q-7800/Q-7900 교체)
     """)
 
@@ -341,55 +348,79 @@ with tab_tuning:
     
     col_t1, col_t2 = st.columns(2)
     
-    # 1. 목표 차체 사진 (1차 업로드 후 세션 잠금 유지)
+    # 1. 목표 차체 사진 (직접 촬영 / 업로드 탭 연동 및 15cm 가이드)
     with col_t1:
         st.write("1. 목표 차체/판넬 사진 (Target)")
+        st.markdown("""<div class="distance-guide-box">
+            <b>📏 촬영 가이드</b>: 차체 표면으로부터 <b>약 15cm 거리</b>에서 수직(90°)으로 촬영해 주세요.
+        </div>""", unsafe_allow_html=True)
+        
         if st.session_state.target_img_bytes is None:
-            uploaded_target = st.file_uploader("목표 차체 사진 업로드 (자동 유지됨)", type=["jpg", "png", "jpeg"])
-            if uploaded_target:
-                st.session_state.target_img_bytes = uploaded_target.getvalue()
-                st.session_state.target_img_name = uploaded_target.name
-                st.rerun()
+            t_input_tab1, t_input_tab2 = st.tabs(["📷 앱에서 직접 촬영", "📁 갤러리 파일 선택"])
+            
+            with t_input_tab1:
+                cam_target = st.camera_input("목표 차체 촬영 (거리 15cm)", key="cam_target_input")
+                if cam_target:
+                    st.session_state.target_img_bytes = cam_target.getvalue()
+                    st.session_state.target_img_name = "카메라 직접 촬영"
+                    st.rerun()
+                    
+            with t_input_tab2:
+                uploaded_target = st.file_uploader("목표 차체 사진 파일", type=["jpg", "png", "jpeg"], key="file_target_input")
+                if uploaded_target:
+                    st.session_state.target_img_bytes = uploaded_target.getvalue()
+                    st.session_state.target_img_name = uploaded_target.name
+                    st.rerun()
         else:
             st.image(
                 load_and_resize(st.session_state.target_img_bytes),
-                caption=f"목표 색상 (Target) [잠금됨: {st.session_state.target_img_name}] - [{selected_camera}]",
+                caption=f"목표 색상 (Target) [촬영 완료: {st.session_state.target_img_name}] - [{selected_camera}]",
                 use_container_width=True
             )
-            if st.button("🔄 목표 사진 변경하기"):
+            if st.button("🔄 목표 사진 다시 찍기"):
                 st.session_state.target_img_bytes = None
                 st.rerun()
 
-    # 2. 단계별 시편 사진 업로드
+    # 2. 단계별 시편 사진 직접 촬영
     with col_t2:
         st.write(f"2. {stage_code} 도장 시편 사진 (Sample)")
-        current_img_file = st.file_uploader(
-            f"{stage_code} 도장 시편 사진 업로드",
-            type=["jpg", "png", "jpeg"],
-            key=f"uploader_stage_{current_stage}"
-        )
-        if current_img_file:
-            st.session_state.temp_sample_bytes = current_img_file.getvalue()
+        st.markdown("""<div class="distance-guide-box">
+            <b>📏 촬영 가이드</b>: 시편 표면으로부터 <b>약 15cm 거리</b>에서 수직(90°)으로 촬영해 주세요.
+        </div>""", unsafe_allow_html=True)
+        
+        s_input_tab1, s_input_tab2 = st.tabs(["📷 앱에서 직접 촬영", "📁 갤러리 파일 선택"])
+        
+        with s_input_tab1:
+            cam_sample = st.camera_input(f"{stage_code} 시편 촬영 (거리 15cm)", key=f"cam_sample_{current_stage}")
+            if cam_sample:
+                st.session_state.temp_sample_bytes = cam_sample.getvalue()
+                
+        with s_input_tab2:
+            file_sample = st.file_uploader(f"{stage_code} 시편 파일 선택", type=["jpg", "png", "jpeg"], key=f"file_sample_{current_stage}")
+            if file_sample:
+                st.session_state.temp_sample_bytes = file_sample.getvalue()
+
+        if st.session_state.temp_sample_bytes:
             st.image(
-                Image.open(current_img_file),
+                Image.open(io.BytesIO(st.session_state.temp_sample_bytes)),
                 caption=f"{stage_code} 신규 도장 시편 (Sample) - [{selected_camera}]",
                 use_container_width=True
             )
 
-    # 3. [모바일 최적화] 이전 시편 vs 신규 시편 중앙 크롭 정밀 확대 대조 (2차 이상 조색 시)
+    # 3. [15cm 촬영 기반] 이전 시편 vs 신규 시편 중앙 크롭 정밀 확대 대조 (2차 이상 조색 시)
     if not is_stage_1 and st.session_state.prev_sample_bytes and st.session_state.temp_sample_bytes:
         st.markdown("---")
         st.markdown("""<div class="comparison-card">
-            <h4 style="margin-top:0; color:#003375;">📱 모바일 최적화: 시편 입자 & 색상 정밀 확대 비교 (Zoom-in Crop)</h4>
-            <p style="font-size:13px; color:#4A5568;">모바일에서도 알갱이 입자감과 미세 색차가 잘 보이도록 시편 중앙 부위만 1:1 확대 비교합니다.</p>
+            <h4 style="margin-top:0; color:#003375;">📱 15cm 정밀 정격 촬영: 시편 입자 & 색상 확대 비교 (Zoom-in Crop)</h4>
+            <p style="font-size:13px; color:#4A5568;">15cm 거리에서 일관되게 촬영된 시편의 중앙 입자감(펄/메탈릭) 및 미세 색차를 1:1 확대 대조합니다.</p>
         </div>""", unsafe_allow_html=True)
         
         c_comp1, c_comp2 = st.columns(2)
         with c_comp1:
-            st.write(f"🔍 **{prev_stage_code} 시편 입자/색상 확대 (이전)**")
+            st.write(f"🔍 **{prev_stage_code} 시편 15cm 확대 (이전)**")
             st.image(crop_center_zoom(st.session_state.prev_sample_bytes), use_container_width=True)
         with c_comp2:
-            st.write(f"🔍 **{stage_code} 시편 입자/색상 확대 (현재 신규)**")
+            st.write(f"🔍 **{stage_code} 시편 15cm 확대 (현재 신규)**")
             st.image(crop_center_zoom(st.session_state.temp_sample_bytes), use_container_width=True)
 
     st.markdown("---")
@@ -400,32 +431,35 @@ with tab_tuning:
     with col_r1:
         if is_stage_1:
             st.subheader("3. 1차 기본 배합 레시피 정보")
-            recipe_input_type = st.radio(
-                "배합표 입력 방식을 선택하세요:",
-                ["📸 배합표 사진 업로드 (추천)", "✍️ 텍스트 직접 입력"],
-                horizontal=True,
-                key="recipe_type_1차"
-            )
-
-            recipe_img_file = None
+            
+            r_input_tab1, r_input_tab2 = st.tabs(["📷 카드 촬영 / 업로드 (추천)", "✍️ 텍스트 직접 작성"])
+            
+            recipe_img_bytes = None
             recipe_text = ""
 
-            if "사진 업로드" in recipe_input_type:
-                recipe_img_file = st.file_uploader("1차 배합표 / 조색기 화면 / 시편 카드 사진 업로드", type=["jpg", "png", "jpeg"], key="r_img_1차")
-                if recipe_img_file:
-                    st.image(Image.open(recipe_img_file), caption="업로드된 배합표 카드 이미지", width=350)
+            with r_input_tab1:
+                cam_recipe = st.camera_input("배합표/시편 카드 촬영", key="cam_recipe_1차")
+                file_recipe = st.file_uploader("또는 카드 사진 파일 업로드", type=["jpg", "png", "jpeg"], key="file_recipe_1차")
+                
+                if cam_recipe:
+                    recipe_img_bytes = cam_recipe.getvalue()
+                elif file_recipe:
+                    recipe_img_bytes = file_recipe.getvalue()
+
+                if recipe_img_bytes:
+                    st.image(Image.open(io.BytesIO(recipe_img_bytes)), caption="촬영/업로드된 배합표 카드", width=350)
                     
-                    # [핵심 기능] 사진 인식 및 표 즉시 반영 버튼
-                    if st.button("🔍 사진에서 배합표 읽어와 표에 반영하기", key="btn_ocr_recipe"):
-                        with st.spinner("AI가 카드 사진 속 안료 코드와 수치를 분석하여 표로 추출하는 중입니다..."):
-                            extracted_df = extract_df_from_recipe_image(client, recipe_img_file.getvalue())
+                    if st.button("🔍 카드 사진에서 배합표 읽어와 표에 반영하기", key="btn_ocr_recipe"):
+                        with st.spinner("AI가 배합표 카드 사진 속 안료 코드와 0.25L 수치를 정밀 분석하는 중입니다..."):
+                            extracted_df = extract_df_from_recipe_image(client, recipe_img_bytes)
                             if extracted_df is not None and not extracted_df.empty:
                                 st.session_state.recipe_table_df = extracted_df
-                                st.success("🎉 사진 속 배합 데이터가 성공적으로 추출되어 아래 표에 반영되었습니다!")
+                                st.success("🎉 사진 속 안료 수치가 성공적으로 판독되어 아래 표에 자동 입력되었습니다!")
                                 st.rerun()
                             else:
-                                st.warning("⚠️ 사진에서 안료 코드를 명확히 읽지 못했습니다. 아래 표에 직접 입력해 주세요.")
-            else:
+                                st.warning("⚠️ 카드에서 안료 수치를 완전히 읽지 못했습니다. 아래 표에 직접 수치를 작성해 주세요.")
+            
+            with r_input_tab2:
                 recipe_text = st.text_area(
                     "1차 배합 레시피 직접 작성",
                     value="",
@@ -437,7 +471,7 @@ with tab_tuning:
                     if parsed_df is not None and not parsed_df.empty:
                         st.session_state.recipe_table_df = parsed_df
 
-            st.write("📋 **1차 확정 배합표 (사진에서 읽은 데이터 / 2차 조색으로 그대로 연동됩니다):**")
+            st.write("📋 **1차 확정 배합표 (2차 조색에 그대로 연동됩니다):**")
             edited_1st_df = st.data_editor(
                 st.session_state.recipe_table_df,
                 use_container_width=True,
@@ -447,9 +481,9 @@ with tab_tuning:
             st.session_state.recipe_table_df = edited_1st_df
 
         else:
-            # 2차/N차 조색 모드: 1차 배합 표 100% 동일 이관
-            st.subheader(f"3. {prev_stage_code} 확정 배합 레시피 (1차 실제 입력 데이터 연동)")
-            st.info(f"💡 {prev_stage_code} 조색 시 확정했던 배합 중량이 표(Table)로 그대로 연동되었습니다.")
+            # 2차/N차 조색 모드: 1차 배합 표 100% 연동
+            st.subheader(f"3. {prev_stage_code} 확정 배합 레시피 (1차 실제 입력 데이터 100% 연동)")
+            st.info(f"💡 {prev_stage_code} 조색 시 확정했던 실제 배합 중량이 아래 표(Table)로 정확히 연동되었습니다.")
             
             edited_df = st.data_editor(
                 st.session_state.recipe_table_df,
@@ -485,13 +519,13 @@ with tab_tuning:
 
     if st.button(btn_label, type="primary", use_container_width=True):
         if st.session_state.target_img_bytes is None:
-            st.warning("⚠️ 목표 차체/판넬 사진(Target)을 1. 영역에 업로드해 주세요.")
+            st.warning("⚠️ 목표 차체/판넬 사진(Target)을 촬영하거나 업로드해 주세요.")
         elif st.session_state.temp_sample_bytes is None:
-            st.warning(f"⚠️ {stage_code} 도장 시편 사진(Sample)을 2. 영역에 업로드해 주세요.")
+            st.warning(f"⚠️ {stage_code} 도장 시편 사진(Sample)을 촬영하거나 업로드해 주세요.")
         elif is_stage_1 and st.session_state.recipe_table_df.empty:
-            st.warning("⚠️ 배합표 사진을 업로드 후 [사진에서 배합표 읽어오기] 버튼을 누르거나 텍스트를 입력해 주세요.")
+            st.warning("⚠️ 배합표 카드를 촬영 후 [사진에서 배합표 읽어오기] 버튼을 누르거나 텍스트를 입력해 주세요.")
         else:
-            with st.spinner(f"AI가 [{stage_code} 조색] 모드로 {prev_stage_code} 배합표와 {stage_code} 시편 오차를 분석하여 신규 대조표를 산출 중입니다..."):
+            with st.spinner(f"AI가 [15cm 표준 촬영 보정 적용] 모드로 {prev_stage_code} 배합표와 {stage_code} 시편 오차를 분석하여 신규 대조표를 산출 중입니다..."):
                 try:
                     img_target = load_and_resize(st.session_state.target_img_bytes)
                     img_current = load_and_resize(st.session_state.temp_sample_bytes)
@@ -501,10 +535,6 @@ with tab_tuning:
                     table_str = st.session_state.recipe_table_df.to_string(index=False)
                     recipe_prompt_part = f"- {prev_stage_code} 확정 배합표:\n{table_str}"
 
-                    if is_stage_1 and recipe_img_file:
-                        img_recipe = load_and_resize(recipe_img_file)
-                        contents_payload.append(img_recipe)
-
                     waterq_system_prompt = f"""
                     당신은 노루페인트 '워터큐(Water-Q) 칼라뱅크 시스템' 최고의 기술 조색 전문가입니다.
                     첫 번째 이미지('목표 색상')와 두 번째 이미지('{stage_code} 도장 시편')를 비교 분석하여, **새로 조색할 {stage_code} 신규 전체 배합 레시피(100% 비율)**를 제안해 주세요.
@@ -513,6 +543,7 @@ with tab_tuning:
                     - **현재 조색 진행 단계**: {stage_code} 조색
                     {recipe_prompt_part}
                     - **{stage_code} 새로 배합할 목표 총 중량**: {target_total_weight}g
+                    - **촬영 환경 수칙**: 15cm 표준 거리에 따른 펄/메탈릭 입자 분석 적용
                     - **촬영 기기 정보**: {selected_camera}
                     - 측색기 수치 정보: {lab_data if lab_data else '없음 (이미지 시각 분석 기반)'}
 
@@ -549,7 +580,7 @@ with tab_tuning:
                     st.session_state.ai_result_text = response.text
                     st.session_state.show_next_btn = True
 
-                    # 1차 조색 실행 결과에서 파싱된 안료표를 2차 세션 데이터로 연동
+                    # 1차 실행 결과에서 파싱된 안료표를 2차 세션 데이터로 연동
                     parsed_df = extract_recipe_df_from_ai_text(response.text)
                     if parsed_df is not None and not parsed_df.empty:
                         st.session_state.recipe_table_df = parsed_df
