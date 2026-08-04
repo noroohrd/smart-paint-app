@@ -2,9 +2,11 @@ import streamlit as st
 from google import genai
 from google.genai.errors import APIError
 from PIL import Image
+import base64
+import os
 
 # ----------------------------------------------------
-# 0. 이미지 최적화 리사이즈 함수
+# 0. 이미지 최적화 및 Base64 변환 함수
 # ----------------------------------------------------
 def load_and_resize(image_file, max_size=(800, 800)):
     """
@@ -16,6 +18,15 @@ def load_and_resize(image_file, max_size=(800, 800)):
     img.thumbnail(max_size)
     return img
 
+def get_image_base64(image_path):
+    """
+    로컬 파일의 이미지를 읽어 Base64 인코딩 문자열로 반환합니다.
+    """
+    if os.path.exists(image_path):
+        with open(image_path, "rb") as img_file:
+            return base64.b64encode(img_file.read()).decode("utf-8")
+    return None
+
 # ----------------------------------------------------
 # 1. 페이지 기본 설정 및 노루페인트 커스텀 테마 Inject
 # ----------------------------------------------------
@@ -24,6 +35,28 @@ st.set_page_config(
     page_icon="🎨",
     layout="wide"
 )
+
+# 프로젝트 폴더 내 로고 이미지 파일 검색 (waterq_logo.png 등)
+logo_b64 = None
+for logo_filename in ["waterq_logo.png", "waterq_logo.jpg", "waterq_logo.jpeg", "logo.png"]:
+    logo_b64 = get_image_base64(logo_filename)
+    if logo_b64:
+        break
+
+# 헤더 우측 로고 HTML 구성 (로고 파일 존재 시 이미지, 미존재 시 백업 텍스트)
+if logo_b64:
+    logo_header_html = f'''
+    <div class="waterq-badge">
+        <img src="data:image/png;base64,{logo_b64}" class="waterq-logo-img" alt="WATER-Q Logo" />
+    </div>
+    '''
+else:
+    logo_header_html = '''
+    <div class="waterq-badge-text">
+        <div class="waterq-logo-text">WATER-Q</div>
+        <div class="waterq-sub-text">COLOR BANK SYSTEM</div>
+    </div>
+    '''
 
 # 노루페인트 자동차보수용 도료(autorefinishes.co.kr) 웹사이트 컨셉 Custom CSS
 st.markdown("""
@@ -37,7 +70,7 @@ st.markdown("""
     /* 상단 노루페인트 헤더 배너 */
     .noroo-header-container {
         background: linear-gradient(135deg, #091936 0%, #003375 50%, #005BB5 100%);
-        padding: 24px 32px;
+        padding: 20px 32px;
         border-radius: 16px;
         color: #FFFFFF;
         margin-bottom: 25px;
@@ -61,15 +94,32 @@ st.markdown("""
     }
 
     .noroo-main-title {
-        font-size: 26px;
+        font-size: 24px;
         font-weight: 800;
         color: #FFFFFF;
         margin: 4px 0 0 0;
         letter-spacing: -0.5px;
     }
 
-    /* Water-Q 로고 엠블럼 뱃지 */
+    /* Water-Q 로고 뱃지 (이미지용 화이트 카드) */
     .waterq-badge {
+        background: #FFFFFF;
+        padding: 8px 18px;
+        border-radius: 12px;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .waterq-logo-img {
+        max-height: 48px;
+        width: auto;
+        object-fit: contain;
+    }
+
+    /* 로고 이미지 미존재 시 백업 텍스트 스타일 */
+    .waterq-badge-text {
         background: rgba(255, 255, 255, 0.08);
         border: 1px solid rgba(255, 255, 255, 0.25);
         backdrop-filter: blur(12px);
@@ -141,16 +191,13 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # 헤더 배너 렌더링
-st.markdown("""
+st.markdown(f"""
 <div class="noroo-header-container">
     <div class="noroo-title-group">
         <span class="noroo-brand-name">NOROO AUTO REFINISHES</span>
         <h1 class="noroo-main-title">AI 스마트 조색 & 도장 결함 진단 솔루션</h1>
     </div>
-    <div class="waterq-badge">
-        <div class="waterq-logo-text">WATER-Q</div>
-        <div class="waterq-sub-text">COLOR BANK SYSTEM</div>
-    </div>
+    {logo_header_html}
 </div>
 """, unsafe_allow_html=True)
 
@@ -158,7 +205,7 @@ st.markdown("""
 # 2. 사이드바 - API 키 및 스마트폰/시스템 설정
 # ----------------------------------------------------
 with st.sidebar:
-    st.header("⚙️ 시스템 & 기기 설정")
+    st.header("⚙️ 시스템 및 기기 설정")
     
     # API 키 연동
     if "GEMINI_API_KEY" in st.secrets:
@@ -219,7 +266,7 @@ with st.sidebar:
     st.info(f"현재 카메라 보정 기종: **{selected_camera}**")
 
     st.markdown("---")
-    st.markdown("### 📘 Water-Q 시스템 핵심 수칙")
+    st.markdown("### 📘 워터큐(Water-Q) 시스템 핵심 수칙")
     st.markdown("""
     * **카메라 왜곡 보정**: 선택 기종 특유의 HDR/색감 왜곡을 역추정하여 실제 육안 기준 색차 분석
     * **델타 E ($\Delta E$) 예측**: 도장 완료 시 목표 색상과의 예상 색차율 제공
