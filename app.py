@@ -3,15 +3,20 @@ from google import genai
 from google.genai.errors import APIError
 from PIL import Image
 import os
+import io
 
 # ----------------------------------------------------
 # 0. 이미지 최적화 리사이즈 및 절대 경로 로고 탐색
 # ----------------------------------------------------
-def load_and_resize(image_file, max_size=(800, 800)):
+def load_and_resize(image_file_or_bytes, max_size=(800, 800)):
     """
     고화질 이미지를 비율을 유지하면서 최대 800x800 해상도로 축소합니다.
     """
-    img = Image.open(image_file)
+    if isinstance(image_file_or_bytes, bytes):
+        img = Image.open(io.BytesIO(image_file_or_bytes))
+    else:
+        img = Image.open(image_file_or_bytes)
+        
     if img.mode in ("RGBA", "P"):
         img = img.convert("RGB")
     img.thumbnail(max_size)
@@ -31,7 +36,7 @@ def find_logo_file():
     return None
 
 # ----------------------------------------------------
-# 1. 페이지 기본 설정 및 노루페인트 커스텀 테마 Inject
+# 1. 페이지 기본 설정 및 세션 상태(Session State) 초기화
 # ----------------------------------------------------
 st.set_page_config(
     page_title="NOROO Auto Refinishes | Water-Q AI Smart Color System",
@@ -39,7 +44,13 @@ st.set_page_config(
     layout="wide"
 )
 
-# 노루페인트 자동차보수용 도료(autorefinishes.co.kr) 웹사이트 컨셉 Custom CSS
+# 목표 차체 사진 세션 상태 유지 (1차에서 등록한 사진이 2차/N차에서도 유지됨)
+if "target_img_bytes" not in st.session_state:
+    st.session_state["target_img_bytes"] = None
+if "target_img_name" not in st.session_state:
+    st.session_state["target_img_name"] = None
+
+# Custom CSS Inject
 st.markdown("""<style>
     @import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css');
 
@@ -47,7 +58,6 @@ st.markdown("""<style>
         font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, system-ui, Roboto, sans-serif;
     }
 
-    /* 상단 노루페인트 딥네이비 배너 */
     .noroo-header-box {
         background: linear-gradient(135deg, #091936 0%, #003375 50%, #005BB5 100%);
         padding: 22px 28px;
@@ -73,7 +83,6 @@ st.markdown("""<style>
         word-break: keep-all;
     }
 
-    /* Streamlit Tab 스타일링 */
     .stTabs [data-baseweb="tab-list"] {
         gap: 12px;
         background-color: #F0F4F8;
@@ -94,7 +103,6 @@ st.markdown("""<style>
         box-shadow: 0 4px 12px rgba(0, 51, 117, 0.2);
     }
 
-    /* 실행 버튼 커스텀 */
     div.stButton > button[kind="primary"] {
         background: linear-gradient(135deg, #003375 0%, #005BB5 100%);
         color: white;
@@ -113,14 +121,13 @@ st.markdown("""<style>
         transform: translateY(-1px);
     }
 
-    /* 사이드바 스타일링 */
     [data-testid="stSidebar"] {
         background-color: #F8FAFC;
         border-right: 1px solid #E2E8F0;
     }
 </style>""", unsafe_allow_html=True)
 
-# 메인 상단 헤더 레이아웃
+# 메인 헤더 레이아웃
 col_header_left, col_header_right = st.columns([3.5, 1.2], vertical_alignment="center")
 
 with col_header_left:
@@ -203,9 +210,9 @@ with st.sidebar:
     st.markdown("---")
     st.markdown("### 📘 Water-Q 시스템 핵심 수칙")
     st.markdown("""
-    * **단계별 조색 지원**: 1차, 2차, N차 시편 결과를 바탕으로 한 신규 배합 산출
+    * **목표 사진 자동 유지**: 1차 등록 후 2차/N차 조색 단계 변경 시에도 목표 사진 자동 유지
+    * **차수별 비교표 생성**: 1차(이전) 배합과 2차(신규) 배합 간 가감 중량을 한눈에 대조
     * **카메라 왜곡 보정**: 선택 기종 특유의 HDR/색감 왜곡을 역추정하여 실제 육안 기준 색차 분석
-    * **델타 E ($\Delta E$) 예측**: 도장 완료 시 목표 색상과의 예상 색차율 제공
     * **Q-7000(표준백색)**: 배합 내 **10% 이상 사용 금지** (초과 시 고농도 백색 **Q-7800 / Q-7900** 교체)
     """)
 
@@ -224,44 +231,79 @@ tab_tuning, tab_defect = st.tabs(["🎨 Water-Q AI 미세 조색 (Fine-Tuning)",
 # TAB 1: Water-Q AI 스마트 미세 조색 모듈
 # ====================================================
 with tab_tuning:
-    st.subheader("🎨 워터큐(Water-Q) 단계별 AI 조색 솔루션")
+    st.subheader("🎯 현재 진행할 조색 단계를 선택하세요:")
     
     # 조색 차수 단계 선택
     tuning_stage = st.radio(
-        "🎯 현재 진행할 조색 단계를 선택하세요:",
+        "조색 단계",
         ["1차 조색 (최초 조색)", "2차 조색 (1차 시편 결과 기반 2차 레시피 생성)", "3차 이상 조색 (이전 시편 결과 기반 N차 레시피 생성)"],
-        horizontal=True
+        horizontal=True,
+        label_visibility="collapsed"
     )
     
     st.markdown("---")
 
-    # 차수 선택에 따른 업로드 문구 정의
+    # 차수 선택에 따른 업로드 라벨 설정
     if "1차" in tuning_stage:
-        sample_label = "2. 1차 도장된 시편 사진 (Sample)"
+        sample_label = "2. 1차 도장 시편 사진 (Sample)"
         recipe_label = "3. 1차 기본 배합 레시피 정보"
         btn_text = "🚀 1차 Water-Q 미세 조색 실행"
         stage_num = "1차"
+        prev_stage_num = "1차"
     elif "2차" in tuning_stage:
-        sample_label = "2. 1차 도장 결과 시편 사진 (Sample)"
-        recipe_label = "3. 1차 도장 시 사용했던 배합 레시피 정보"
-        btn_text = "🚀 2차 신규 배합 레시피 생성"
+        sample_label = "2. 2차 도장 시편 사진 (Sample)"
+        recipe_label = "3. 1차 도장 시 실제로 사용했던 배합 레시피"
+        btn_text = "🚀 2차 신규 배합 레시피 생성 (1차 vs 2차 비교표 포함)"
         stage_num = "2차"
+        prev_stage_num = "1차"
     else:
-        sample_label = "2. 최근(이전 차수) 도장 시편 사진 (Sample)"
-        recipe_label = "3. 최근 도장 시 사용했던 배합 레시피 정보"
-        btn_text = "🚀 N차 신규 배합 레시피 생성"
+        sample_label = "2. N차(현재) 도장 시편 사진 (Sample)"
+        recipe_label = "3. 직전 차수(N-1차)에 사용했던 배합 레시피"
+        btn_text = "🚀 N차 신규 배합 레시피 생성 (직전 vs N차 비교표 포함)"
         stage_num = "N차"
+        prev_stage_num = "이전(N-1차)"
 
     col_t1, col_t2 = st.columns(2)
+    
+    # 1. 목표 차체/판넬 사진 (세션 유지 적용)
     with col_t1:
-        target_img_file = st.file_uploader("1. 목표 차체/판넬 사진 (Target)", type=["jpg", "png", "jpeg"], key="target_img")
-        if target_img_file:
-            st.image(Image.open(target_img_file), caption=f"목표 색상 (Target) - [{selected_camera}]", use_container_width=True)
+        st.write("1. 목표 차체/판넬 사진 (Target)")
+        uploaded_target = st.file_uploader(
+            "목표 차체 사진 업로드 (1차 등록 후 자동 유지)",
+            type=["jpg", "png", "jpeg"],
+            key="target_file_uploader"
+        )
+        
+        # 파일이 새로 업로드되면 세션 상태에 저장
+        if uploaded_target is not None:
+            st.session_state["target_img_bytes"] = uploaded_target.getvalue()
+            st.session_state["target_img_name"] = uploaded_target.name
 
+        # 세션에 저장된 목표 사진이 있으면 표시
+        if st.session_state["target_img_bytes"] is not None:
+            target_pil_img = load_and_resize(st.session_state["target_img_bytes"])
+            st.image(
+                target_pil_img,
+                caption=f"목표 색상 (Target) [자동유지됨: {st.session_state['target_img_name']}] - [{selected_camera}]",
+                use_container_width=True
+            )
+        else:
+            st.info("💡 1차 조색 시 목표 차체 사진을 업로드해 주세요. 2차/N차 단계에서도 자동으로 유지됩니다.")
+
+    # 2. 해당 차수 시편 사진 업로드
     with col_t2:
-        current_img_file = st.file_uploader(sample_label, type=["jpg", "png", "jpeg"], key="current_img")
+        st.write(sample_label)
+        current_img_file = st.file_uploader(
+            f"{stage_num} 시편 사진 업로드",
+            type=["jpg", "png", "jpeg"],
+            key=f"sample_{stage_num}_uploader"
+        )
         if current_img_file:
-            st.image(Image.open(current_img_file), caption=f"{stage_num} 시편 사진 - [{selected_camera}]", use_container_width=True)
+            st.image(
+                Image.open(current_img_file),
+                caption=f"{stage_num} 시편 사진 (Sample) - [{selected_camera}]",
+                use_container_width=True
+            )
 
     st.markdown("---")
     
@@ -281,18 +323,22 @@ with tab_tuning:
         recipe_text = ""
 
         if "사진 업로드" in recipe_input_type:
-            recipe_img_file = st.file_uploader(f"{stage_num} 이전 배합표 / 조색기 화면 사진 업로드", type=["jpg", "png", "jpeg"], key="recipe_img")
+            recipe_img_file = st.file_uploader(
+                f"{prev_stage_num} 배합표 / 조색기 화면 사진 업로드",
+                type=["jpg", "png", "jpeg"],
+                key=f"recipe_img_{stage_num}"
+            )
             if recipe_img_file:
                 st.image(Image.open(recipe_img_file), caption="업로드된 배합표 이미지", width=350)
         else:
             recipe_text = st.text_area(
-                f"{stage_num} 이전 배합 레시피 직접 작성",
+                f"{prev_stage_num} 배합 레시피 직접 작성",
                 value="Q-7000 80g, Q-8200 10g, Q-5450 5g, Q-9500 5g",
                 placeholder="예: Q-7000 100g, Q-5450 12g, Q-8200 1.5g..."
             )
 
     with col_r2:
-        st.subheader(f"4. {stage_num} 목표 조색 중량 및 측색 데이터")
+        st.subheader(f"4. {stage_num} 목표 조색 중량 및 측색 수치")
         
         target_total_weight = st.number_input(
             f"🎯 {stage_num} 새로 배합할 총 중량 (g)",
@@ -311,72 +357,74 @@ with tab_tuning:
     st.markdown("---")
 
     if st.button(btn_text, type="primary", use_container_width=True):
-        if target_img_file and current_img_file:
-            if not recipe_img_file and not recipe_text.strip():
-                st.warning("⚠️ 배합표 사진을 업로드하거나 텍스트를 입력해 주세요.")
-            else:
-                with st.spinner(f"AI가 [{stage_num} 조색] 모드로 시편 오차를 분석하여 {target_total_weight}g 신규 레시피를 계산 중입니다..."):
-                    try:
-                        img_target = load_and_resize(target_img_file)
-                        img_current = load_and_resize(current_img_file)
-
-                        contents_payload = [img_target, img_current]
-
-                        if recipe_img_file:
-                            img_recipe = load_and_resize(recipe_img_file)
-                            contents_payload.append(img_recipe)
-                            recipe_prompt_part = f"- {stage_num} 이전 배합 레시피: [첨부된 세 번째 이미지(배합표 사진)에서 안료명과 중량을 OCR 및 시각 분석하여 파악할 것]"
-                        else:
-                            recipe_prompt_part = f"- {stage_num} 이전 배합 레시피: {recipe_text}"
-
-                        waterq_system_prompt = f"""
-                        당신은 노루페인트 '워터큐(Water-Q) 칼라뱅크 시스템' 최고의 기술 조색 전문가입니다.
-                        첫 번째 이미지('목표 색상')와 두 번째 이미지('{stage_num} 이전 시편')를 비교 분석하여, **새로 조색할 {stage_num} 신규 전체 배합 레시피(100% 비율)**를 제안해 주세요.
-
-                        [진행 단계 및 입력 데이터]
-                        - **현재 조색 진행 단계**: {tuning_stage}
-                        {recipe_prompt_part}
-                        - **새로 배합할 목표 총 중량**: {target_total_weight}g
-                        - **촬영 기기 정보**: {selected_camera}
-                        - 측색기 수치 정보: {lab_data if lab_data else '없음 (이미지 시각 분석 기반)'}
-
-                        [★ {stage_num} 신규 재배합 핵심 지침 ★]
-                        1. 기존 배합에 덧붓는 방식이 아닌, 이전 배합 레시피로 도장한 시편과 목표 색상의 차이(명도, 색상, 채도, 입자감, Flop 감도)를 종합 분석하여 **새 용기에 새로 조색할 목표 총 중량({target_total_weight}g) 기준의 신규 전체 배합표**를 산출하세요.
-                        2. 이전 배합에서 부족했던 색조 및 입자감은 비율을 높이고, 오차를 유발한 안료는 감량하거나 제외(0g) 처리하세요. 필요 시 워터큐 DB 중 최적의 안료를 신규 투입하세요.
-                        3. 백색 규정(Q-7000 10% 이내 사용, 초과 시 Q-7800/7900 사용) 및 메탈릭 조색 시 Q-3550 금지 수칙을 철저히 준수하세요.
-
-                        [작성 양식]
-                        1. **실제 육안(Human Eye) 기준 색상 및 {stage_num} 오차 정밀 분석**: ({selected_camera} 특성 보정 후 명도, 색상, 입자감, Flop 차이 분석)
-                        2. **{stage_num} 배합 변경 처방 이유**: (이전 배합 대비 안료 비율 수정 이유 및 신규 추가/제외 안료 설명)
-                        3. **📊 Water-Q AI {stage_num} 최적 재배합표 (목표 총량 {target_total_weight}g 기준)**:
-                           - 반드시 아래 마크다운 표 형식으로 작성하세요.
-                           
-                           | 안료 코드 (Q-Code) | 이전 배합 중량 (g) | 신규 변경 처방량 (g) | 최종 신규 레시피 중량 (g) | 처방 역할 및 상태 |
-                           | :--- | :--- | :--- | :--- | :--- |
-                           | 예: Q-7000 | 80.00 | -80.00 | 0.00 | ❌ 제외 (백색 규정 위반) |
-                           | 예: Q-7800 | 0.00 | +15.00 | 15.00 | ✨ 신규 추가 (고농도 백색) |
-                           | 예: Q-5450 | 5.00 | +0.80 | 5.80 | 🔺 비율 보강 (청색 강화) |
-                           | **합계 (Total)** | **이전 총량** | - | **{target_total_weight}g** | **100% 신규 완벽 배합** |
-
-                        4. **🎯 예상 $\Delta E$ (색차) 및 육안 평가**: 
-                           - 이번 {stage_num} 레시피로 재도장 시 예상되는 **델타 E ($\Delta E$) 수치** 표기 (예: "예상 $\Delta E$: 0.35 (매우 우수)")
-                        5. **교반 및 도장 주의사항**: (희석 비율, 노즐 거리, 건조 수칙)
-                        """
-
-                        contents_payload.append(waterq_system_prompt)
-
-                        response = client.models.generate_content(
-                            model="gemini-3.5-flash",
-                            contents=contents_payload
-                        )
-
-                        st.success(f"🎉 [{tuning_stage}] {stage_num} 신규 배합 레시피 산출 완료!")
-                        st.markdown(response.text)
-
-                    except APIError as e:
-                        st.error(f"API 오류가 발생했습니다: {e}")
+        if st.session_state["target_img_bytes"] is None:
+            st.warning("⚠️ 목표 차체/판넬 사진(Target)을 1. 영역에 업로드해 주세요.")
+        elif current_img_file is None:
+            st.warning(f"⚠️ {stage_num} 도장 시편 사진(Sample)을 2. 영역에 업로드해 주세요.")
+        elif not recipe_img_file and not recipe_text.strip():
+            st.warning("⚠️ 이전 배합표 사진을 업로드하거나 텍스트를 입력해 주세요.")
         else:
-            st.warning("⚠️ 목표 색상 사진과 시편 사진을 모두 업로드해 주세요.")
+            with st.spinner(f"AI가 [{stage_num} 조색] 모드로 세션 유지된 목표 사진과 {stage_num} 시편 오차를 분석하여 {target_total_weight}g 신규 레시피 및 대조표를 생성 중입니다..."):
+                try:
+                    img_target = load_and_resize(st.session_state["target_img_bytes"])
+                    img_current = load_and_resize(current_img_file)
+
+                    contents_payload = [img_target, img_current]
+
+                    if recipe_img_file:
+                        img_recipe = load_and_resize(recipe_img_file)
+                        contents_payload.append(img_recipe)
+                        recipe_prompt_part = f"- {prev_stage_num} 사용 배합 레시피: [첨부된 세 번째 이미지(배합표 사진)에서 안료명과 중량을 OCR 및 시각 분석하여 파악할 것]"
+                    else:
+                        recipe_prompt_part = f"- {prev_stage_num} 사용 배합 레시피: {recipe_text}"
+
+                    waterq_system_prompt = f"""
+                    당신은 노루페인트 '워터큐(Water-Q) 칼라뱅크 시스템' 최고의 기술 조색 전문가입니다.
+                    첫 번째 이미지('목표 색상')와 두 번째 이미지('{stage_num} 도장 시편')를 비교 분석하여, **새로 조색할 {stage_num} 신규 전체 배합 레시피(100% 비율)**를 제안해 주세요.
+
+                    [진행 단계 및 입력 데이터]
+                    - **현재 조색 진행 단계**: {tuning_stage} ({stage_num} 진행 중)
+                    {recipe_prompt_part}
+                    - **{stage_num} 새로 배합할 목표 총 중량**: {target_total_weight}g
+                    - **촬영 기기 정보**: {selected_camera}
+                    - 측색기 수치 정보: {lab_data if lab_data else '없음 (이미지 시각 분석 기반)'}
+
+                    [★ {stage_num} 신규 재배합 및 시각적 대조표 지침 ★]
+                    1. 기존 배합에 덧붓는 방식이 아닙니다. {prev_stage_num} 레시피로 도장한 시편과 목표 색상의 차이(명도, 색상, 채도, 입자감, Flop 감도)를 정밀 분석하여 **새 용기에 새로 조색할 목표 총 중량({target_total_weight}g) 기준의 신규 전체 배합표**를 산출하세요.
+                    2. **시각적 대조표 필수 출력**: {prev_stage_num} 배합 대비 {stage_num} 신규 배합이 어떻게 바뀌었는지 중량 가감 변화량(+g / -g)과 처방 역할을 표(Table)로 명확히 시각화하세요.
+                    3. {prev_stage_num} 배합에서 부족했던 색조 및 입자감은 비율을 높이고, 오차를 유발한 안료는 감량 또는 제외(0g) 처리하세요. 필요 시 워터큐 DB 중 최적 안료를 신규 투입하세요.
+                    4. 백색 규정(Q-7000 10% 이내 사용, 초과 시 Q-7800/7900 사용) 및 메탈릭 조색 시 Q-3550 금지 수칙을 철저히 준수하세요.
+
+                    [작성 양식]
+                    1. **실제 육안(Human Eye) 기준 색상 및 {stage_num} 오차 정밀 분석**: ({selected_camera} 특성 보정 후 명도, 색상, 입자감, Flop 차이 분석)
+                    2. **{stage_num} 배합 변경 처방 이유**: ({prev_stage_num} 배합 대비 안료 비율 수정 이유 및 신규 추가/제외 안료 설명)
+                    3. **📊 Water-Q AI {prev_stage_num} vs {stage_num} 신규 배합 비교표 (목표 총량 {target_total_weight}g 기준)**:
+                       - 반드시 아래 마크다운 표 형식으로 작성하세요.
+                       
+                       | 안료 코드 (Q-Code) | {prev_stage_num} 배합 중량 (g) | {stage_num} 신규 배합 중량 (g) | 가감 차이 (g) | 처방 역할 및 상태 |
+                       | :--- | :--- | :--- | :--- | :--- |
+                       | 예: Q-7000 | 80.00 | 0.00 | -80.00 | ❌ 제외 (백색 규정 위반) |
+                       | 예: Q-7800 | 0.00 | 15.00 | +15.00 | ✨ 신규 추가 (고농도 백색) |
+                       | 예: Q-5450 | 5.00 | 5.80 | +0.80 | 🔺 비율 보강 (청색 강화) |
+                       | **합계 (Total)** | **{prev_stage_num} 총량** | **{target_total_weight}g** | **-** | **{stage_num} 100% 신규 완벽 배합** |
+
+                    4. **🎯 예상 $\Delta E$ (색차) 및 육안 평가**: 
+                       - 이번 {stage_num} 레시피로 재도장 시 예상되는 **델타 E ($\Delta E$) 수치** 표기 (예: "예상 $\Delta E$: 0.35 (매우 우수)")
+                    5. **교반 및 도장 주의사항**: (희석 비율, 노즐 거리, 건조 수칙)
+                    """
+
+                    contents_payload.append(waterq_system_prompt)
+
+                    response = client.models.generate_content(
+                        model="gemini-3.5-flash",
+                        contents=contents_payload
+                    )
+
+                    st.success(f"🎉 [{stage_num} 조색] 신규 배합 레시피 및 비교표 산출 완료!")
+                    st.markdown(response.text)
+
+                except APIError as e:
+                    st.error(f"API 오류가 발생했습니다: {e}")
 
 # ====================================================
 # TAB 2: 도장 결함 진단 모듈
