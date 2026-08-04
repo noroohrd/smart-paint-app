@@ -317,9 +317,9 @@ with st.sidebar:
     st.markdown("---")
     st.markdown("### 📘 Water-Q 원스톱 수칙")
     st.markdown("""
-    * **자동 합격(Auto-Stop) 제어**: Delta E($\Delta E$) $\le 1.0$ 도달 시 추가 조색을 즉시 종료하고 최종 확정
-    * **사진 읽기 연동**: 사진 업로드 후 인식 버튼을 누르면 안료와 수치가 표에 연동
-    * **모바일 확대 크롭 비교**: 시편 입자감과 색차를 모바일에서도 쉽게 비교할 수 있도록 중심부 크롭 연동
+    * **엄격한 합격 기준 ($\Delta E \le 0.5$)**: 육안 감지 불가능 기준인 **색차 0.5 이하 도달 시 자동 조색 종료**
+    * **CIE $L^*a*b^*$ 색공간 정밀 분석**: 명도($L^*$), 적/녹($a^*$), 황/청($b^*$) 3축 알고리즘을 통한 오차 교정
+    * **15cm 정격 촬영 수칙**: 펄/메탈릭 알갱이 질감 분해능 확보를 위한 15cm 수직 촬영
     * **Q-7000 사용 제약**: 배합 내 **10% 이상 사용 금지** (초과 시 Q-7800/Q-7900 교체)
     """)
 
@@ -522,7 +522,7 @@ with tab_tuning:
         elif is_stage_1 and st.session_state.recipe_table_df.empty:
             st.warning("⚠️ 배합표 카드를 촬영 후 [사진에서 배합표 읽어오기] 버튼을 누르거나 텍스트를 입력해 주세요.")
         else:
-            with st.spinner(f"AI가 [Auto-Stop 판정 알고리즘 적용] 모드로 {prev_stage_code} 배합표와 {stage_code} 시편 오차를 정밀 분석 중입니다..."):
+            with st.spinner(f"AI가 [CIE L*a*b* 색공간 및 Delta E <= 0.5 정밀 알고리즘]을 통해 분석 중입니다..."):
                 try:
                     img_target = load_and_resize(st.session_state.target_img_bytes)
                     img_current = load_and_resize(st.session_state.temp_sample_bytes)
@@ -533,8 +533,8 @@ with tab_tuning:
                     recipe_prompt_part = f"- {prev_stage_code} 확정 배합표:\n{table_str}"
 
                     waterq_system_prompt = f"""
-                    당신은 노루페인트 '워터큐(Water-Q) 칼라뱅크 시스템' 최고의 기술 조색 전문가입니다.
-                    첫 번째 이미지('목표 색상')와 두 번째 이미지('{stage_code} 도장 시편')를 정밀 비교 분석하세요.
+                    당신은 노루페인트 '워터큐(Water-Q) 칼라뱅크 시스템' 최고의 기술 조색 및 색채학 전문가입니다.
+                    첫 번째 이미지('목표 색상')와 두 번째 이미지('{stage_code} 도장 시편')를 CIE L*a*b* 색공간 기준에서 정밀 관찰하세요.
 
                     [진행 단계 및 입력 데이터]
                     - **현재 조색 진행 단계**: {stage_code} 조색
@@ -542,34 +542,38 @@ with tab_tuning:
                     - **{stage_code} 새로 배합할 목표 총 중량**: {target_total_weight}g
                     - **촬영 환경 수칙**: 15cm 표준 거리에 따른 펄/메탈릭 입자 분석 적용
                     - **촬영 기기 정보**: {selected_camera}
-                    - 측색기 수치 정보: {lab_data if lab_data else '없음 (이미지 시각 분석 기반)'}
+                    - 측색기 수치 정보: {lab_data if lab_data else '없음 (이미지 CIE L*a*b* 정밀 추정 분석)'}
 
-                    [★ 핵심: 자동 합격(Auto-Stop) 및 Delta E 판정 규칙 ★]
-                    1. 두 이미지(목표 색상 vs {stage_code} 시편)를 비교하여 예상 **Delta E ($\Delta E$) 수치**를 엄격히 산출하세요.
-                    2. 동일한 사진이 업로드되었거나, 육안/시각적으로 목표 색상과 오차가 거의 없는 경우 **예상 $\Delta E \le 1.0$** 으로 판단하세요.
-                    3. **$\Delta E \le 1.0$ 일 경우**:
-                       - 리포트 제목 하단에 **`[판정: 🎉 조색 완벽 합격 (추가 보정 불필요)]`** 라는 문구를 반드시 포함하세요.
-                       - 신규 배합 가감표에서 추가 투입/감량 없이 **현재 레시피 유지(0.00g 변동)**로 최종 확정하세요.
-                    4. **$\Delta E > 1.0$ 일 경우**:
-                       - 리포트 제목 하단에 **`[판정: 🔺 추가 미세 보정 필요]`** 문구를 포함하고 기존 수칙에 따라 신규 배합표를 산출하세요.
-
-                    [★ 규칙 ★]
-                    - 백색 규정(Q-7000 10% 이내 사용, 초과 시 Q-7800/7900 사용) 및 메탈릭 조색 시 Q-3550 금지 수칙 준수.
+                    [★ 핵심: 색공간 분석 및 Delta E <= 0.5 판정 규칙 ★]
+                    1. **CIE L*a*b* 정밀 색공간 평가**:
+                       - 명도 오차 ($\Delta L^*$): 정면/측면 밝기 오차 분석
+                       - 적/녹 오차 ($\Delta a^*$): 적미(+) 또는 녹미(-) 오차 파악
+                       - 황/청 오차 ($\Delta b^*$): 황미(+) 또는 청미(-) 오차 파악
+                       - Flop 감도 오차: 입자 알갱이의 반사 명도차 분석
+                    2. **Delta E 판정**:
+                       - 동일한 사진이거나, 육안으로 구분이 완전히 불가능한 경우 **예상 $\Delta E \le 0.5$** 로 엄격 판정하세요.
+                    3. **$\Delta E \le 0.5$ 일 경우**:
+                       - 리포트 상단에 **`[판정: 🎉 조색 완벽 합격 (Delta E <= 0.5)]`** 문구를 포함하세요.
+                       - 추가 투입/감량 없이 **현재 레시피 유지(0.00g 변동)**로 최종 완벽 합격 처리하세요.
+                    4. **$\Delta E > 0.5$ 일 경우**:
+                       - 리포트 상단에 **`[판정: 🔺 미세 보정 필요]`** 문구를 포함하고 오차($\Delta L^*, \Delta a^*, \Delta b^*$)를 보정할 신규 배합표를 산출하세요.
 
                     [작성 양식]
-                    1. **판정 및 Delta E 수치**: 
-                       - **예상 $\Delta E$**: x.xx
-                       - **최종 판정**: [판정: 🎉 조색 완벽 합격 (추가 보정 불필요)] 또는 [판정: 🔺 추가 미세 보정 필요]
-                    2. **실제 육안(Human Eye) 기준 색상 및 {stage_code} 오차 정밀 분석**: ({selected_camera} 특성 보정 후 명도, 색상, 입자감, Flop 차이 분석)
-                    3. **{stage_code} 배합 변경 처방 이유**: ({prev_stage_code} 배합 대비 안료 비율 수정 이유 설명)
-                    4. **📊 Water-Q AI {prev_stage_code} vs {stage_code} 신규 배합 대조표 (목표 총량 {target_total_weight}g 기준)**:
+                    1. **CIE L*a*b* 색공간 평가 및 Delta E**:
+                       - **추정 색차 ($\Delta E$)**: x.xx
+                       - **최종 판정**: [판정: 🎉 조색 완벽 합격 (Delta E <= 0.5)] 또는 [판정: 🔺 미세 보정 필요]
+                       - **명도 오차 ($\Delta L^*$)**: (예: +0.2 밝음 / -0.4 어두움)
+                       - **색상 오차 ($\Delta a^*, \Delta b^*$)**: (예: 적미 과다 / 황미 부족 등)
+                       - **Flop 입자감 오차**: (메탈릭/펄 알갱이 밀도 분석)
+                    2. **{stage_code} 배합 변경 처방 이유**: (오차 원인 및 안료 가감 이유 설명)
+                    3. **📊 Water-Q AI {prev_stage_code} vs {stage_code} 신규 배합 대조표 (목표 총량 {target_total_weight}g 기준)**:
                        
                        | 안료 코드 (Q-Code) | {prev_stage_code} 배합 중량 (g) | {stage_code} 신규 배합 중량 (g) | 가감 차이 (g) | 처방 역할 및 상태 |
                        | :--- | :--- | :--- | :--- | :--- |
                        | 예: Q-9760 | 88.00 | 88.00 | 0.00 | ➖ 현재 레시피 유지 (합격) |
                        | **합계 (Total)** | **{prev_stage_code} 총량** | **{target_total_weight}g** | **-** | **최종 확정 배합** |
 
-                    5. **교반 및 도장 주의사항**: (희석 비율, 노즐 거리, 건조 수칙)
+                    4. **교반 및 도장 주의사항**: (희석 비율, 노즐 거리, 건조 수칙)
                     """
 
                     contents_payload.append(waterq_system_prompt)
@@ -581,8 +585,8 @@ with tab_tuning:
 
                     st.session_state.ai_result_text = response.text
                     
-                    # 합격 여부 자동 판단 (Auto-Stop)
-                    if "조색 완벽 합격" in response.text or "추가 보정 불필요" in response.text:
+                    # 0.5 이하 합격 여부 판단
+                    if "조색 완벽 합격" in response.text or "Delta E <= 0.5" in response.text:
                         st.session_state.is_passed = True
                         st.session_state.show_next_btn = False
                     else:
@@ -599,13 +603,13 @@ with tab_tuning:
 
     # 6. 결과 출력 및 '다음 단계 진행' 연속성 버튼 제어
     if st.session_state.ai_result_text:
-        st.markdown("### 📊 AI 조색 분석 및 대조 리포트")
+        st.markdown("### 📊 AI 색공간 분석 및 대조 리포트")
         st.markdown(st.session_state.ai_result_text)
 
         # 합격 시 축하 효과 및 자동 종료 안내
         if st.session_state.is_passed:
             st.balloons()
-            st.success("🎉 목표 색상과의 색차가 기준치($\Delta E \le 1.0$) 이하로 측정되어 조색이 완벽하게 완료되었습니다! 더 이상 추가 조색을 진행하지 않고 현재 배합을 최종 확정합니다.")
+            st.success("🎉 색차 수치가 기준치($\Delta E \le 0.5$) 이하로 측정되어 조색이 완벽히 합격 처리되었습니다! 더 이상 추가 조색을 진행하지 않고 현재 배합을 최종 확정합니다.")
 
     # 미합격시에만 다음 단계 계속 진행 버튼 노출
     if st.session_state.show_next_btn and not st.session_state.is_passed:
