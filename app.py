@@ -2,11 +2,10 @@ import streamlit as st
 from google import genai
 from google.genai.errors import APIError
 from PIL import Image
-import base64
 import os
 
 # ----------------------------------------------------
-# 0. 이미지 최적화 및 Base64 변환 함수
+# 0. 이미지 최적화 리사이즈 함수
 # ----------------------------------------------------
 def load_and_resize(image_file, max_size=(800, 800)):
     """
@@ -18,15 +17,6 @@ def load_and_resize(image_file, max_size=(800, 800)):
     img.thumbnail(max_size)
     return img
 
-def get_image_base64(image_path):
-    """
-    로컬 파일의 이미지를 읽어 Base64 인코딩 문자열로 반환합니다.
-    """
-    if os.path.exists(image_path):
-        with open(image_path, "rb") as img_file:
-            return base64.b64encode(img_file.read()).decode("utf-8")
-    return None
-
 # ----------------------------------------------------
 # 1. 페이지 기본 설정 및 노루페인트 커스텀 테마 Inject
 # ----------------------------------------------------
@@ -35,24 +25,6 @@ st.set_page_config(
     page_icon="🎨",
     layout="wide"
 )
-
-# 현재 스크립트 실행 경로 기준 로고 파일 탐색
-current_dir = os.path.dirname(os.path.abspath(__file__))
-logo_b64 = None
-
-for logo_filename in ["waterq_logo.png", "waterq_logo.jpg", "waterq_logo.jpeg", "logo.png"]:
-    target_path = os.path.join(current_dir, logo_filename)
-    logo_b64 = get_image_base64(target_path)
-    if not logo_b64:
-        logo_b64 = get_image_base64(logo_filename) # 상대 경로 재시도
-    if logo_b64:
-        break
-
-# 로고 HTML 구성 (들여쓰기 공백 제거로 코드블록 버그 방지)
-if logo_b64:
-    logo_header_html = f'<div class="waterq-badge"><img src="data:image/png;base64,{logo_b64}" class="waterq-logo-img" alt="WATER-Q Logo" /></div>'
-else:
-    logo_header_html = '<div class="waterq-badge-text"><div class="waterq-logo-text">WATER-Q</div><div class="waterq-sub-text">COLOR BANK SYSTEM</div></div>'
 
 # 노루페인트 자동차보수용 도료(autorefinishes.co.kr) 웹사이트 컨셉 Custom CSS
 st.markdown("""
@@ -63,24 +35,14 @@ st.markdown("""
         font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, system-ui, Roboto, sans-serif;
     }
 
-    /* 상단 노루페인트 헤더 배너 */
-    .noroo-header-container {
+    /* 상단 노루페인트 딥네이비 배너 */
+    .noroo-header-box {
         background: linear-gradient(135deg, #091936 0%, #003375 50%, #005BB5 100%);
-        padding: 20px 28px;
+        padding: 22px 28px;
         border-radius: 16px;
         color: #FFFFFF;
-        margin-bottom: 25px;
         box-shadow: 0 8px 24px rgba(0, 51, 117, 0.18);
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 16px;
-        word-break: keep-all;
-    }
-
-    .noroo-title-group {
-        display: flex;
-        flex-direction: column;
+        margin-bottom: 10px;
     }
 
     .noroo-brand-name {
@@ -92,7 +54,7 @@ st.markdown("""
     }
 
     .noroo-main-title {
-        font-size: 22px;
+        font-size: 23px;
         font-weight: 800;
         color: #FFFFFF;
         margin: 4px 0 0 0;
@@ -100,47 +62,16 @@ st.markdown("""
         word-break: keep-all;
     }
 
-    /* Water-Q 로고 뱃지 (이미지용 화이트 카드) */
-    .waterq-badge {
-        background: #FFFFFF;
-        padding: 8px 16px;
-        border-radius: 12px;
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    /* 로고 화이트 카드 감싸기 */
+    .logo-card-container {
+        background-color: #FFFFFF;
+        padding: 10px 16px;
+        border-radius: 14px;
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.12);
         display: flex;
         align-items: center;
         justify-content: center;
-        flex-shrink: 0;
-    }
-
-    .waterq-logo-img {
-        max-height: 48px;
-        width: auto;
-        object-fit: contain;
-    }
-
-    /* 로고 미감지 시 백업 텍스트 뱃지 */
-    .waterq-badge-text {
-        background: rgba(255, 255, 255, 0.08);
-        border: 1px solid rgba(255, 255, 255, 0.25);
-        backdrop-filter: blur(12px);
-        padding: 8px 16px;
-        border-radius: 12px;
-        text-align: center;
-        flex-shrink: 0;
-    }
-
-    .waterq-logo-text {
-        font-size: 18px;
-        font-weight: 900;
-        color: #00D2FF;
-        letter-spacing: 2px;
-        font-style: italic;
-    }
-
-    .waterq-sub-text {
-        font-size: 9px;
-        color: #E0E0E0;
-        letter-spacing: 1px;
+        margin-bottom: 10px;
     }
 
     /* Streamlit Tab 스타일링 */
@@ -191,9 +122,33 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# 헤더 배너 렌더링
-header_container_html = f'<div class="noroo-header-container"><div class="noroo-title-group"><span class="noroo-brand-name">NOROO AUTO REFINISHES</span><h1 class="noroo-main-title">AI 스마트 조색 & 도장 결함 진단 솔루션</h1></div>{logo_header_html}</div>'
-st.markdown(header_container_html, unsafe_allow_html=True)
+# 메인 상단 헤더 레이아웃 (왼쪽: 제목, 오른쪽: Water-Q 공식 로고)
+col_header_left, col_header_right = st.columns([3.4, 1.2], vertical_alignment="center")
+
+with col_header_left:
+    st.markdown("""
+    <div class="noroo-header-box">
+        <span class="noroo-brand-name">NOROO AUTO REFINISHES</span>
+        <h1 class="noroo-main-title">AI 스마트 조색 & 도장 결함 진단 솔루션</h1>
+    </div>
+    """, unsafe_allow_html=True)
+
+with col_header_right:
+    # 폴더 내 waterq_logo.png 감지 및 출력
+    logo_path = None
+    for fname in ["waterq_logo.png", "waterq_logo.jpg", "waterq_logo.jpeg", "logo.png"]:
+        if os.path.exists(fname):
+            logo_path = fname
+            break
+        
+    if logo_path:
+        st.markdown('<div class="logo-card-container">', unsafe_allow_html=True)
+        st.image(logo_path, use_container_width=True)
+        st.markdown('</div>', unsafe_allow_html=True)
+    else:
+        st.info("💡 `waterq_logo.png` 파일 추가 필요")
+
+st.markdown("---")
 
 # ----------------------------------------------------
 # 2. 사이드바 - API 키 및 스마트폰/시스템 설정
