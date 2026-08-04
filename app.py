@@ -43,8 +43,9 @@ with st.sidebar:
     st.markdown("---")
     st.markdown("### 📘 워터큐(Water-Q) 시스템 핵심 수칙")
     st.markdown("""
+    * **카메라 왜곡 보정**: iPhone 14 등 스마트폰 카메라의 이미지 프로세싱 왜곡을 보정하여 실제 육안 기준으로 색차 분석
+    * **델타 E ($\Delta E$) 예측**: 도장 완료 시 목표 색상과의 예상 색차율 제공
     * **Q-7000(표준백색)**: 배합 내 **10% 이상 사용 금지** (초과 시 고농도 백색 **Q-7800 / Q-7900** 교체 사용)
-    * **Q-3550(옥사이드 황색)**: 메탈릭/펄 조색 시 **사용 엄금** (솔리드 전용)
     * **신규 안료 추가/제외**: 목표색 재현에 필요 시 Water-Q DB 기반 **신규 안료 적극 투입 및 불필요 안료 제외**
     """)
 
@@ -73,12 +74,12 @@ with tab_tuning:
     with col_t1:
         target_img_file = st.file_uploader("1. 목표 차체/판넬 사진 (Target)", type=["jpg", "png", "jpeg"], key="target_img")
         if target_img_file:
-            st.image(Image.open(target_img_file), caption="목표 색상 (Target)", use_container_width=True)
+            st.image(Image.open(target_img_file), caption="목표 색상 (Target) - iPhone 14 촬영본", use_container_width=True)
 
     with col_t2:
         current_img_file = st.file_uploader("2. 1차 도장된 시편 사진 (Sample)", type=["jpg", "png", "jpeg"], key="current_img")
         if current_img_file:
-            st.image(Image.open(current_img_file), caption="1차 시편 (Sample)", use_container_width=True)
+            st.image(Image.open(current_img_file), caption="1차 시편 (Sample) - iPhone 14 촬영본", use_container_width=True)
 
     st.markdown("---")
     
@@ -131,7 +132,7 @@ with tab_tuning:
             if not recipe_img_file and not recipe_text.strip():
                 st.warning("⚠️ 1차 배합표 사진을 업로드하거나 텍스트를 입력해 주세요.")
             else:
-                with st.spinner(f"AI가 신규 안료 제안 및 목표 중량({target_total_weight}g)에 맞춰 정밀 보정표를 산출 중입니다..."):
+                with st.spinner(f"AI가 iPhone 14 카메라 왜곡을 보정하며 목표 중량({target_total_weight}g) 맞춤 레시피를 계산 중입니다..."):
                     try:
                         # 이미지 리사이즈
                         img_target = load_and_resize(target_img_file)
@@ -155,17 +156,18 @@ with tab_tuning:
                         - **목표 조색 총 중량**: {target_total_weight}g (반드시 이 총 중량 비율 기준으로 최종 배합을 계산할 것)
                         - 측색기 수치 정보: {lab_data if lab_data else '없음 (이미지 시각 분석 기반)'}
 
+                        [★ 스마트폰 카메라 왜곡 보정 (iPhone 14) ★]
+                        업로드된 사진들은 **아이폰 14 후면 카메라**로 촬영되었습니다. 아이폰 특유의 이미지 프로세싱(자동 HDR, 명암비 강화, 약간의 Warm Tone 및 채도 과장 현상)이 포함되어 있을 수 있습니다. 이를 감안하여 사진에 보이는 색상 그대로가 아닌, **실제 육안(Human Eye)으로 보았을 때의 색상, 명도, 입자감**을 역추정하여 분석하세요.
+
                         [★ 워터큐(Water-Q) 최적 배합 재구성 지침 ★]
                         1. **신규 안료 추가 & 불필요 안료 제외 자유권 부여**:
-                           - 기존 1차 배합 안료의 중량 조절만으로 목표 색상 재현이 어려울 경우, **워터큐 안료 DB(Q-0130~Q-9890) 중 가장 적합한 신규 안료를 자유롭게 추가**하세요.
-                           - 기존 배합 중 색상을 탁하게 만들거나 워터큐 규정에 위반되는 안료는 **제외(0g)** 또는 차단 조치하세요.
-                        2. **백색 제약 조건**: Q-7000(표준 백색)은 전체 배합 내 10% 이상 사용 금지. 백색 투입량이 10% 초과할 경우 Q-7000을 제외/축소하고 반드시 고농도 고은폐 백색인 **Q-7800** 또는 **Q-7900**을 신규 투입하세요.
-                        3. **메탈릭 제약 조건**: 메탈릭/펄 색상 조색 시 **Q-3550(옥사이드 황색)**은 절대로 투입하지 말 것 (솔리드 전용).
-                        4. **정면/측면(Face/Flop) 및 입자감 계산**:
-                           - 입자감/휘도 보정이 필요할 경우 적절한 실버(Q-9260~9890) 또는 펄(Q-0130~0770) 안료를 신규 추가하세요.
+                           - 기존 1차 배합 안료의 중량 조절만으로 목표 색상 재현이 어려울 경우, 워터큐 안료 DB(Q-0130~Q-9890) 중 가장 적합한 신규 안료를 자유롭게 추가하세요.
+                           - 기존 배합 중 색상을 탁하게 만들거나 워터큐 규정에 위반되는 안료는 제외(0g) 또는 차단 조치하세요.
+                        2. **백색 제약 조건**: Q-7000(표준 백색)은 전체 배합 내 10% 이상 사용 금지. 백색 투입량이 10% 초과할 경우 반드시 고농도 백색인 **Q-7800** 또는 **Q-7900**을 신규 투입하세요.
+                        3. **메탈릭 제약 조건**: 메탈릭/펄 색상 조색 시 **Q-3550(옥사이드 황색)**은 절대로 투입하지 말 것.
 
                         [작성 양식]
-                        1. **색상 차이 및 정면/측면(Face/Flop) 정밀 분석**: (명도, 색상, 채도, 입자감 차이)
+                        1. **실제 육안(Human Eye) 기준 색상 정밀 분석**: (아이폰 14의 렌즈 왜곡/HDR을 감안하여 실제 육안에서 보이는 명도, 색상, 입자감 차이를 추정하여 설명)
                         2. **배합 변경 및 신규 안료 처방 이유**: (어떤 안료가 새로 추가되었고 어떤 안료가 제외/감량되었는지 사유 설명)
                         3. **📊 Water-Q AI 최적 재구성 보정표 (목표 총량 {target_total_weight}g 기준)**:
                            - 반드시 아래 마크다운 표 형식으로 작성하세요.
@@ -175,10 +177,12 @@ with tab_tuning:
                            | 예: Q-7000 | 80.00 | -80.00 | 0.00 | ❌ 제외 (백색 10% 초과 규정 위반) |
                            | 예: Q-7800 | 0.00 | +15.00 | 15.00 | ✨ 신규 추가 (고농도 백색 / 명도 상승) |
                            | 예: Q-5450 | 5.00 | +0.50 | 5.50 | 🔺 증량 (청색 보강) |
-                           | 예: Q-0530 | 0.00 | +0.20 | 0.20 | ✨ 신규 추가 (블루 펄 정면/측면 반사) |
                            | **합계 (Total)** | **기존 총량** | - | **{target_total_weight}g** | **목표 총량 완벽 산출** |
 
-                        4. **교반 및 현장 도장 주의사항**: (희석 비율, 스프레이 노즐 및 건조 시 주의점)
+                        4. **🎯 예상 $\Delta E$ (색차) 및 육안 평가**: 
+                           - 이 레시피로 재도장 시 목표 색상과의 **예상 델타 E ($\Delta E$) 수치**를 산출해 주세요.
+                           - 예시: "예상 $\Delta E$: 0.4 (육안으로 식별이 거의 불가능한 수준)"
+                        5. **교반 및 현장 도장 주의사항**: (희석 비율, 건조 시 주의점)
                         """
 
                         contents_payload.append(waterq_system_prompt)
@@ -193,7 +197,7 @@ with tab_tuning:
                         st.markdown(response.text)
 
                     except APIError as e:
-                        st.error(f"API 오류가 발생했습니다: {e}")
+                        st.error(f"API 오류가 발생했습니다: {{e}}")
         else:
             st.warning("⚠️ 목표 색상 사진과 1차 시편 사진을 모두 업로드해 주세요.")
 
@@ -244,6 +248,6 @@ with tab_defect:
                     st.markdown(response.text)
 
                 except APIError as e:
-                    st.error(f"오류가 발생했습니다: {e}")
+                    st.error(f"오류가 발생했습니다: {{e}}")
         else:
             st.warning("결함 부위 사진을 업로드해 주세요.")
