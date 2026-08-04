@@ -9,7 +9,7 @@ import json
 import pandas as pd
 
 # ----------------------------------------------------
-# 0. 이미지 최적화, 정밀 JSON/텍스트 파서 및 3분할 결합 함수
+# 0. 이미지 최적화 및 3분할 가로 결합 함수
 # ----------------------------------------------------
 def load_and_resize(image_file_or_bytes, max_size=(1200, 1200)):
     if isinstance(image_file_or_bytes, bytes):
@@ -23,7 +23,6 @@ def load_and_resize(image_file_or_bytes, max_size=(1200, 1200)):
     return img
 
 def crop_center(img, crop_ratio=0.5):
-    """이미지의 중앙 영역(crop_ratio 비율)을 확대 크롭합니다."""
     w, h = img.size
     cw, ch = int(w * crop_ratio), int(h * crop_ratio)
     left = (w - cw) // 2
@@ -31,10 +30,6 @@ def crop_center(img, crop_ratio=0.5):
     return img.crop((left, top, left + cw, top + ch))
 
 def create_3way_split_view(bytes_prev, bytes_target, bytes_curr, crop_ratio=0.5):
-    """
-    [이전 시편(좌)] | [🎯 목표 색상(중앙)] | [신규 시편(우)]
-    세 이미지를 가로로 딱 붙여 큰 화면으로 정밀 대조하는 3분할 뷰를 생성합니다.
-    """
     img_prev = load_and_resize(bytes_prev)
     img_target = load_and_resize(bytes_target)
     img_curr = load_and_resize(bytes_curr)
@@ -43,7 +38,6 @@ def create_3way_split_view(bytes_prev, bytes_target, bytes_curr, crop_ratio=0.5)
     crop_t = crop_center(img_target, crop_ratio)
     crop2 = crop_center(img_curr, crop_ratio)
     
-    # 높이를 기준에 맞춰 리사이즈
     h = min(crop1.height, crop_t.height, crop2.height)
     w1 = int(crop1.width * (h / crop1.height))
     wt = int(crop_t.width * (h / crop_t.height))
@@ -53,7 +47,6 @@ def create_3way_split_view(bytes_prev, bytes_target, bytes_curr, crop_ratio=0.5)
     ct_resized = crop_t.resize((wt, h))
     c2_resized = crop2.resize((w2, h))
     
-    # 3분할 가로 합성 이미지 생성
     merged_img = Image.new("RGB", (w1 + wt + w2, h))
     merged_img.paste(c1_resized, (0, 0))
     merged_img.paste(ct_resized, (w1, 0))
@@ -64,7 +57,6 @@ def create_3way_split_view(bytes_prev, bytes_target, bytes_curr, crop_ratio=0.5)
 def extract_recipe_df_from_ai_text(text):
     if not text:
         return None
-    
     try:
         json_match = re.search(r"```json\s*(\{.*?\})\s*```", text, re.DOTALL)
         if not json_match:
@@ -75,10 +67,7 @@ def extract_recipe_df_from_ai_text(text):
             codes = [k.upper().strip() for k in data.keys()]
             weights = [float(v) for v in data.values()]
             if codes:
-                return pd.DataFrame({
-                    "안료 코드 (Q-Code)": codes,
-                    "1차 배합 중량 (g)": weights
-                })
+                return pd.DataFrame({"안료 코드 (Q-Code)": codes, "1차 배합 중량 (g)": weights})
     except Exception:
         pass
 
@@ -99,10 +88,7 @@ def extract_recipe_df_from_ai_text(text):
             except ValueError:
                 continue
         if codes:
-            return pd.DataFrame({
-                "안료 코드 (Q-Code)": codes,
-                "1차 배합 중량 (g)": weights
-            })
+            return pd.DataFrame({"안료 코드 (Q-Code)": codes, "1차 배합 중량 (g)": weights})
 
     return None
 
@@ -110,20 +96,12 @@ def extract_df_from_recipe_image(client, image_bytes):
     try:
         img = load_and_resize(image_bytes)
         prompt = """
-        첨부된 도료 배합표/시편 카드 이미지에서 안료 코드(Q-Code, 예: Q-9760, Q-8200 등)와 해당 중량(g)을 정확히 읽어주세요.
-        여러 용량이 기재되어 있다면 가장 소용량(예: 0.25L 또는 가장 왼쪽 열 수치) 기준 중량을 선택하세요.
-        반드시 오직 아래 규격의 JSON 형식으로만 출력하세요. 다른 설명이나 텍스트는 절대 작성하지 마세요.
+        첨부된 도료 배합표/시편 카드 이미지에서 안료 코드(Q-Code)와 해당 중량(g)을 읽어 JSON으로만 출력하세요.
         ```json
-        {
-          "Q-9760": 88.0,
-          "Q-9800": 60.31
-        }
+        { "Q-9760": 88.0, "Q-9800": 60.31 }
         ```
         """
-        res = client.models.generate_content(
-            model="gemini-3.5-flash",
-            contents=[img, prompt]
-        )
+        res = client.models.generate_content(model="gemini-3.5-flash", contents=[img, prompt])
         return extract_recipe_df_from_ai_text(res.text)
     except Exception as e:
         st.error(f"사진 인식 중 오류가 발생했습니다: {e}")
@@ -140,7 +118,7 @@ def find_logo_file():
     return None
 
 # ----------------------------------------------------
-# 1. 페이지 및 세션 상태(Session State) 관리
+# 1. 페이지 설정 및 Secrets 자동 API 키 연동
 # ----------------------------------------------------
 st.set_page_config(
     page_title="NOROO Auto Refinishes | Water-Q AI Smart Color System",
@@ -148,6 +126,16 @@ st.set_page_config(
     layout="wide"
 )
 
+# API 키 세크리트 자동 연결
+if "GEMINI_API_KEY" in st.secrets:
+    api_key = st.secrets["GEMINI_API_KEY"]
+else:
+    st.error("⚠️ Streamlit Secrets에 GEMINI_API_KEY가 설정되지 않았습니다.")
+    st.stop()
+
+client = genai.Client(api_key=api_key)
+
+# 세션 상태 초기화
 if "current_stage" not in st.session_state:
     st.session_state.current_stage = 1
 if "target_img_bytes" not in st.session_state:
@@ -288,7 +276,7 @@ st.markdown("""<style>
     }
 </style>""", unsafe_allow_html=True)
 
-# 메인 헤더 레이아웃
+# 메인 헤더
 col_header_left, col_header_right = st.columns([3.5, 1.2], vertical_alignment="center")
 
 with col_header_left:
@@ -301,13 +289,11 @@ with col_header_right:
     logo_path = find_logo_file()
     if logo_path:
         st.image(logo_path, use_container_width=True)
-    else:
-        st.warning("⚠️ `waterq_logo.png` 로고 파일 필요")
 
 st.markdown("---")
 
 # ----------------------------------------------------
-# 2. 사이드바 - API 키 및 스마트폰/시스템 설정
+# 2. 사이드바 - 기기 설정 전용 (API 키 입력창 제거)
 # ----------------------------------------------------
 with st.sidebar:
     st.header("⚙️ 시스템 설정")
@@ -316,14 +302,6 @@ with st.sidebar:
         st.session_state.clear()
         st.rerun()
 
-    st.markdown("---")
-
-    if "GEMINI_API_KEY" in st.secrets:
-        api_key = st.secrets["GEMINI_API_KEY"]
-        st.success("🔒 API 키 연동됨")
-    else:
-        api_key = st.text_input("Gemini API Key 입력", type="password")
-    
     st.markdown("---")
     st.subheader("📱 스마트폰 카메라 보정")
     
@@ -334,18 +312,12 @@ with st.sidebar:
     st.markdown("---")
     st.markdown("### 📘 Water-Q 원스톱 수칙")
     st.markdown("""
-    * **중앙 목표 3분할 대조 (3-Way View)**: [이전 시편] | [🎯 목표 차체] | [신규 시편] 정밀 결합 비교
+    * **자동 연동 시스템**: API 키가 시스템에 자동 보안 적용되어 바로 사용 가능합니다.
+    * **3분할 대조 (3-Way View)**: [이전 시편] | [🎯 목표 차체] | [신규 시편] 정밀 결합 비교
     * **엄격한 합격 기준 ($\Delta E \le 0.5$)**: 육안 감지 불가능 기준인 **색차 0.5 이하 도달 시 자동 조색 종료**
-    * **CIE $L^*a*b^*$ 색공간 정밀 분석**: 명도($L^*$), 적/녹($a^*$), 황/청($b^*$) 3축 알고리즘을 통한 오차 교정
     * **15cm 정격 촬영 수칙**: 펄/메탈릭 알갱이 질감 분해능 확보를 위한 15cm 수직 촬영
     * **Q-7000 사용 제약**: 배합 내 **10% 이상 사용 금지** (초과 시 Q-7800/Q-7900 교체)
     """)
-
-if not api_key:
-    st.info("👈 사이드바에 Gemini API 키를 입력해 주세요.")
-    st.stop()
-
-client = genai.Client(api_key=api_key)
 
 # ----------------------------------------------------
 # 3. 메인 탭 구성 및 조색 워크플로우
@@ -422,7 +394,7 @@ with tab_tuning:
                 use_container_width=True
             )
 
-    # 3. [★ 핵심 개편] 3분할 결합 정밀 확대 대조 (3-Way Split View)
+    # 3. 3분할 결합 정밀 확대 대조 (3-Way Split View)
     if not is_stage_1 and st.session_state.prev_sample_bytes and st.session_state.target_img_bytes and st.session_state.temp_sample_bytes:
         st.markdown("---")
         st.markdown("""<div class="comparison-card">
@@ -506,7 +478,6 @@ with tab_tuning:
             st.session_state.recipe_table_df = edited_1st_df
 
         else:
-            # 2차/N차 조색 모드: 1차 배합 표 100% 연동
             st.subheader(f"3. {prev_stage_code} 확정 배합 레시피 (1차 실제 입력 데이터 100% 연동)")
             st.info(f"💡 {prev_stage_code} 조색 시 확정했던 실제 배합 중량이 아래 표(Table)로 정확히 연동되었습니다.")
             
@@ -613,7 +584,6 @@ with tab_tuning:
 
                     st.session_state.ai_result_text = response.text
                     
-                    # 0.5 이하 합격 여부 판단
                     if "조색 완벽 합격" in response.text or "Delta E <= 0.5" in response.text:
                         st.session_state.is_passed = True
                         st.session_state.show_next_btn = False
@@ -621,7 +591,6 @@ with tab_tuning:
                         st.session_state.is_passed = False
                         st.session_state.show_next_btn = True
 
-                    # 1차 실행 결과에서 파싱된 안료표를 2차 세션 데이터로 연동
                     parsed_df = extract_recipe_df_from_ai_text(response.text)
                     if parsed_df is not None and not parsed_df.empty:
                         st.session_state.recipe_table_df = parsed_df
@@ -629,17 +598,15 @@ with tab_tuning:
                 except APIError as e:
                     st.error(f"API 오류가 발생했습니다: {e}")
 
-    # 6. 결과 출력 및 '다음 단계 진행' 연속성 버튼 제어
+    # 6. 결과 출력 및 연속성 버튼 제어
     if st.session_state.ai_result_text:
         st.markdown("### 📊 AI 색공간 분석 및 대조 리포트")
         st.markdown(st.session_state.ai_result_text)
 
-        # 합격 시 축하 효과 및 자동 종료 안내
         if st.session_state.is_passed:
             st.balloons()
             st.success("🎉 색차 수치가 기준치($\Delta E \le 0.5$) 이하로 측정되어 조색이 완벽히 합격 처리되었습니다! 더 이상 추가 조색을 진행하지 않고 현재 배합을 최종 확정합니다.")
 
-    # 미합격시에만 다음 단계 계속 진행 버튼 노출
     if st.session_state.show_next_btn and not st.session_state.is_passed:
         st.markdown("---")
         st.info(f"💡 {stage_code} 도장 후 색상 매칭률이 아직 부족하다면, 하단 버튼을 클릭하여 방금 완료된 배합을 바탕으로 {current_stage + 1}차 조색을 즉시 진행하세요.")
