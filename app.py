@@ -70,7 +70,7 @@ def extract_recipe_df_from_ai_text(text):
         pass
 
     # 2. 텍스트 정규식 파싱 시도 (백업)
-    pattern = r"(Q-\d{4})\s*[:\=\|\s]+([\d\.]+)\s*g?"
+    pattern = r"(Q-\d{3,4})\s*[:\=\|\s]+([\d\.]+)\s*g?"
     matches = re.findall(pattern, text, re.IGNORECASE)
     if matches:
         codes = []
@@ -93,6 +93,32 @@ def extract_recipe_df_from_ai_text(text):
             })
 
     return None
+
+def extract_df_from_recipe_image(client, image_bytes):
+    """
+    Gemini 비전 API를 이용해 카드 사진에서 안료 코드와 소용량 기준 중량을 읽어와 DataFrame 생성
+    """
+    try:
+        img = load_and_resize(image_bytes)
+        prompt = """
+        첨부된 도료 배합표/시편 카드 이미지에서 안료 코드(Q-Code, 예: Q-9760, Q-8200 등)와 해당 중량(g)을 정확히 읽어주세요.
+        여러 용량이 기재되어 있다면 가장 소용량(예: 0.25L 또는 가장 왼쪽 열 수치) 기준 중량을 선택하세요.
+        반드시 오직 아래 규격의 JSON 형식으로만 출력하세요. 다른 설명이나 텍스트는 절대 작성하지 마세요.
+        ```json
+        {
+          "Q-9760": 88.0,
+          "Q-9800": 60.31
+        }
+        ```
+        """
+        res = client.models.generate_content(
+            model="gemini-3.5-flash",
+            contents=[img, prompt]
+        )
+        return extract_recipe_df_from_ai_text(res.text)
+    except Exception as e:
+        st.error(f"사진 인식 중 오류가 발생했습니다: {e}")
+        return None
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -125,11 +151,11 @@ if "prev_sample_bytes" not in st.session_state:
 if "temp_sample_bytes" not in st.session_state:
     st.session_state.temp_sample_bytes = None
 
-# 기본 1차 배합 세션 데이터프레임
+# [핵심 수정] 가짜 더미 데이터를 완전히 삭제하고 빈 표준 구조로 초기화
 if "recipe_table_df" not in st.session_state:
     st.session_state.recipe_table_df = pd.DataFrame({
-        "안료 코드 (Q-Code)": ["Q-9760", "Q-9800", "Q-9500", "Q-8200", "Q-7350", "Q-5450", "Q-6450", "Q-7450"],
-        "1차 배합 중량 (g)": [88.00, 60.31, 18.76, 69.49, 5.48, 8.04, 1.17, 5.03]
+        "안료 코드 (Q-Code)": ["", "", "", ""],
+        "1차 배합 중량 (g)": [0.0, 0.0, 0.0, 0.0]
     })
 
 if "ai_result_text" not in st.session_state:
@@ -287,7 +313,7 @@ with st.sidebar:
     st.markdown("---")
     st.markdown("### 📘 Water-Q 원스톱 수칙")
     st.markdown("""
-    * **OCR JSON 정밀 연동**: 1차 카드 사진의 안료 코드/중량이 2차 표 데이터로 100% 동일 이관
+    * **사진 읽기 연동**: 사진 업로드 후 인식 버튼을 누르면 안료와 수치가 표에 정확히 연동됩니다.
     * **모바일 확대 크롭 비교**: 시편 입자감과 색차를 모바일에서도 쉽게 비교할 수 있도록 중심부 크롭 연동
     * **원스톱 워크플로우**: 1차 완료 후 하단 버튼 클릭으로 2차/N차 단계 자동 전환
     * **Q-7000 사용 제약**: 배합 내 **10% 이상 사용 금지** (초과 시 Q-7800/Q-7900 교체)
@@ -385,19 +411,33 @@ with tab_tuning:
             recipe_text = ""
 
             if "사진 업로드" in recipe_input_type:
-                recipe_img_file = st.file_uploader("1차 배합표 / 조색기 화면 / 카렌스 시편 카드 사진 업로드", type=["jpg", "png", "jpeg"], key="r_img_1차")
+                recipe_img_file = st.file_uploader("1차 배합표 / 조색기 화면 / 시편 카드 사진 업로드", type=["jpg", "png", "jpeg"], key="r_img_1차")
                 if recipe_img_file:
                     st.image(Image.open(recipe_img_file), caption="업로드된 배합표 카드 이미지", width=350)
-                    st.success("📸 사진 인식 준비 완료! '1차 실행' 클릭 시 사진의 안료와 중량을 정밀 OCR로 판독하여 2차 표로 자동 전달합니다.")
+                    
+                    # [핵심 기능] 사진 인식 및 표 즉시 반영 버튼
+                    if st.button("🔍 사진에서 배합표 읽어와 표에 반영하기", key="btn_ocr_recipe"):
+                        with st.spinner("AI가 카드 사진 속 안료 코드와 수치를 분석하여 표로 추출하는 중입니다..."):
+                            extracted_df = extract_df_from_recipe_image(client, recipe_img_file.getvalue())
+                            if extracted_df is not None and not extracted_df.empty:
+                                st.session_state.recipe_table_df = extracted_df
+                                st.success("🎉 사진 속 배합 데이터가 성공적으로 추출되어 아래 표에 반영되었습니다!")
+                                st.rerun()
+                            else:
+                                st.warning("⚠️ 사진에서 안료 코드를 명확히 읽지 못했습니다. 아래 표에 직접 입력해 주세요.")
             else:
                 recipe_text = st.text_area(
-                    "1차 배합 레시피 직접 작성 (입력 시 2차 표로 자동 연동됩니다)",
-                    value="Q-9760 88g, Q-9800 60.31g, Q-9500 18.76g, Q-8200 69.49g, Q-7350 5.48g, Q-5450 8.04g, Q-6450 1.17g, Q-7450 5.03g",
-                    placeholder="예: Q-9760 88g, Q-9800 60.31g...",
+                    "1차 배합 레시피 직접 작성",
+                    value="",
+                    placeholder="예: Q-9760 88g, Q-9800 60.31g, Q-9500 18.76g...",
                     key="r_text_1차"
                 )
+                if recipe_text.strip():
+                    parsed_df = extract_recipe_df_from_ai_text(recipe_text)
+                    if parsed_df is not None and not parsed_df.empty:
+                        st.session_state.recipe_table_df = parsed_df
 
-            st.write("📋 **1차 확정 배합표 미리보기 (2차 조색에 그대로 연동됩니다):**")
+            st.write("📋 **1차 확정 배합표 (사진에서 읽은 데이터 / 2차 조색으로 그대로 연동됩니다):**")
             edited_1st_df = st.data_editor(
                 st.session_state.recipe_table_df,
                 use_container_width=True,
@@ -408,8 +448,8 @@ with tab_tuning:
 
         else:
             # 2차/N차 조색 모드: 1차 배합 표 100% 동일 이관
-            st.subheader(f"3. {prev_stage_code} 확정 배합 레시피 (사진 OCR 100% 실시간 연동)")
-            st.info(f"💡 {prev_stage_code} 카드 사진에서 읽어낸 실제 안료 코드와 중량이 정확히 연동되었습니다.")
+            st.subheader(f"3. {prev_stage_code} 확정 배합 레시피 (1차 실제 입력 데이터 연동)")
+            st.info(f"💡 {prev_stage_code} 조색 시 확정했던 배합 중량이 표(Table)로 그대로 연동되었습니다.")
             
             edited_df = st.data_editor(
                 st.session_state.recipe_table_df,
@@ -448,8 +488,8 @@ with tab_tuning:
             st.warning("⚠️ 목표 차체/판넬 사진(Target)을 1. 영역에 업로드해 주세요.")
         elif st.session_state.temp_sample_bytes is None:
             st.warning(f"⚠️ {stage_code} 도장 시편 사진(Sample)을 2. 영역에 업로드해 주세요.")
-        elif is_stage_1 and (not recipe_img_file and not recipe_text.strip()):
-            st.warning("⚠️ 1차 배합표 사진을 업로드하거나 텍스트를 입력해 주세요.")
+        elif is_stage_1 and st.session_state.recipe_table_df.empty:
+            st.warning("⚠️ 배합표 사진을 업로드 후 [사진에서 배합표 읽어오기] 버튼을 누르거나 텍스트를 입력해 주세요.")
         else:
             with st.spinner(f"AI가 [{stage_code} 조색] 모드로 {prev_stage_code} 배합표와 {stage_code} 시편 오차를 분석하여 신규 대조표를 산출 중입니다..."):
                 try:
@@ -458,16 +498,12 @@ with tab_tuning:
 
                     contents_payload = [img_target, img_current]
 
-                    if is_stage_1:
-                        if recipe_img_file:
-                            img_recipe = load_and_resize(recipe_img_file)
-                            contents_payload.append(img_recipe)
-                            recipe_prompt_part = "- 1차 사용 배합 레시피: [첨부된 세 번째 이미지(배합표 카드 사진)에서 안료 코드(Q-Code)와 소용량(예: 0.25L) 기준 중량을 정확히 OCR 추출할 것]"
-                        else:
-                            recipe_prompt_part = f"- 1차 사용 배합 레시피: {recipe_text}"
-                    else:
-                        table_str = st.session_state.recipe_table_df.to_string(index=False)
-                        recipe_prompt_part = f"- {prev_stage_code} 확정 배합표 (OCR 동기화됨):\n{table_str}"
+                    table_str = st.session_state.recipe_table_df.to_string(index=False)
+                    recipe_prompt_part = f"- {prev_stage_code} 확정 배합표:\n{table_str}"
+
+                    if is_stage_1 and recipe_img_file:
+                        img_recipe = load_and_resize(recipe_img_file)
+                        contents_payload.append(img_recipe)
 
                     waterq_system_prompt = f"""
                     당신은 노루페인트 '워터큐(Water-Q) 칼라뱅크 시스템' 최고의 기술 조색 전문가입니다.
@@ -485,21 +521,6 @@ with tab_tuning:
                     2. **시각적 대조표 필수 작성**: {prev_stage_code} 배합 중량과 {stage_code} 신규 배합 중량을 대조하여 각 안료의 가감 변화량(+g / -g)과 처방 역할을 표(Table)로 명확히 보여주세요.
                     3. {prev_stage_code} 배합에서 부족했던 색조 및 입자감은 비율을 높이고, 오차를 유발한 안료는 감량하거나 제외(0g) 처리하세요. 필요 시 워터큐 DB 중 최적 안료를 신규 투입하세요.
                     4. 백색 규정(Q-7000 10% 이내 사용, 초과 시 Q-7800/7900 사용) 및 메탈릭 조색 시 Q-3550 금지 수칙을 철저히 준수하세요.
-
-                    [★ 필수: 1차 원본 배합표 JSON 추출 수칙 ★]
-                    답변의 가장 마지막 부분에 1차 배합 사진 또는 입력에서 판독한 원본 안료와 중량을 아래 규격의 JSON 블록으로 반드시 출력하세요. (사진에 여러 용량이 있는 경우 가장 소용량 기준 수치를 추출하세요)
-                    ```json
-                    {{
-                      "Q-9760": 88.00,
-                      "Q-9800": 60.31,
-                      "Q-9500": 18.76,
-                      "Q-8200": 69.49,
-                      "Q-7350": 5.48,
-                      "Q-5450": 8.04,
-                      "Q-6450": 1.17,
-                      "Q-7450": 5.03
-                    }}
-                    ```
 
                     [작성 양식]
                     1. **실제 육안(Human Eye) 기준 색상 및 {stage_code} 오차 정밀 분석**: ({selected_camera} 특성 보정 후 명도, 색상, 입자감, Flop 차이 분석)
@@ -528,10 +549,10 @@ with tab_tuning:
                     st.session_state.ai_result_text = response.text
                     st.session_state.show_next_btn = True
 
-                    # 1차 실행 결과에서 정밀 추출한 JSON 또는 표 데이터를 2차 세션 데이터로 100% 동일 이관
-                    extracted_df = extract_recipe_df_from_ai_text(response.text)
-                    if extracted_df is not None and not extracted_df.empty:
-                        st.session_state.recipe_table_df = extracted_df
+                    # 1차 조색 실행 결과에서 파싱된 안료표를 2차 세션 데이터로 연동
+                    parsed_df = extract_recipe_df_from_ai_text(response.text)
+                    if parsed_df is not None and not parsed_df.empty:
+                        st.session_state.recipe_table_df = parsed_df
 
                 except APIError as e:
                     st.error(f"API 오류가 발생했습니다: {e}")
