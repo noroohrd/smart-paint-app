@@ -17,22 +17,148 @@ def load_and_resize(image_file, max_size=(800, 800)):
     return img
 
 # ----------------------------------------------------
-# 1. 페이지 기본 설정
+# 1. 페이지 기본 설정 및 노루페인트 커스텀 테마 Inject
 # ----------------------------------------------------
 st.set_page_config(
-    page_title="노루페인트 워터큐(Water-Q) AI 스마트 도장/조색 시스템",
+    page_title="NOROO Auto Refinishes | Water-Q AI Smart Color System",
     page_icon="🎨",
     layout="wide"
 )
 
-st.title("🎨 노루페인트 워터큐(Water-Q) AI 스마트 조색 & 결함 진단 솔루션")
-st.caption("Water-Q 칼라뱅크 시스템 전용 AI 미세 조색(Fine-Tuning) 및 현장 도장 결함 진단 리포트")
+# 노루페인트 자동차보수용 도료(autorefinishes.co.kr) 웹사이트 컨셉 Custom CSS
+st.markdown("""
+<style>
+    @import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css');
+
+    html, body, [class*="css"] {
+        font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, system-ui, Roboto, sans-serif;
+    }
+
+    /* 상단 노루페인트 헤더 배너 */
+    .noroo-header-container {
+        background: linear-gradient(135deg, #091936 0%, #003375 50%, #005BB5 100%);
+        padding: 24px 32px;
+        border-radius: 16px;
+        color: #FFFFFF;
+        margin-bottom: 25px;
+        box-shadow: 0 8px 24px rgba(0, 51, 117, 0.18);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+    }
+
+    .noroo-title-group {
+        display: flex;
+        flex-direction: column;
+    }
+
+    .noroo-brand-name {
+        font-size: 13px;
+        font-weight: 700;
+        color: #82B1FF;
+        letter-spacing: 2px;
+        text-transform: uppercase;
+    }
+
+    .noroo-main-title {
+        font-size: 26px;
+        font-weight: 800;
+        color: #FFFFFF;
+        margin: 4px 0 0 0;
+        letter-spacing: -0.5px;
+    }
+
+    /* Water-Q 로고 엠블럼 뱃지 */
+    .waterq-badge {
+        background: rgba(255, 255, 255, 0.08);
+        border: 1px solid rgba(255, 255, 255, 0.25);
+        backdrop-filter: blur(12px);
+        padding: 10px 20px;
+        border-radius: 30px;
+        text-align: right;
+    }
+
+    .waterq-logo-text {
+        font-size: 20px;
+        font-weight: 900;
+        color: #00D2FF;
+        letter-spacing: 2px;
+        font-style: italic;
+    }
+
+    .waterq-sub-text {
+        font-size: 10px;
+        color: #E0E0E0;
+        letter-spacing: 1px;
+    }
+
+    /* Streamlit Tab 스타일링 */
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 12px;
+        background-color: #F0F4F8;
+        padding: 6px;
+        border-radius: 12px;
+    }
+
+    .stTabs [data-baseweb="tab"] {
+        border-radius: 8px;
+        padding: 10px 24px;
+        font-weight: 700;
+        color: #4A5568;
+    }
+
+    .stTabs [aria-selected="true"] {
+        background-color: #003375 !important;
+        color: #FFFFFF !important;
+        box-shadow: 0 4px 12px rgba(0, 51, 117, 0.2);
+    }
+
+    /* 버튼 커스텀 */
+    div.stButton > button[kind="primary"] {
+        background: linear-gradient(135deg, #003375 0%, #005BB5 100%);
+        color: white;
+        border: none;
+        padding: 14px 28px;
+        font-size: 17px;
+        font-weight: 700;
+        border-radius: 10px;
+        box-shadow: 0 4px 14px rgba(0, 51, 117, 0.25);
+        transition: all 0.2s ease;
+    }
+
+    div.stButton > button[kind="primary"]:hover {
+        background: linear-gradient(135deg, #002252 0%, #00448A 100%);
+        box-shadow: 0 6px 18px rgba(0, 51, 117, 0.35);
+        transform: translateY(-1px);
+    }
+
+    /* 사이드바 스타일링 */
+    [data-testid="stSidebar"] {
+        background-color: #F8FAFC;
+        border-right: 1px solid #E2E8F0;
+    }
+</style>
+""", unsafe_allow_html=True)
+
+# 헤더 배너 렌더링
+st.markdown("""
+<div class="noroo-header-container">
+    <div class="noroo-title-group">
+        <span class="noroo-brand-name">NOROO AUTO REFINISHES</span>
+        <h1 class="noroo-main-title">AI 스마트 조색 & 도장 결함 진단 솔루션</h1>
+    </div>
+    <div class="waterq-badge">
+        <div class="waterq-logo-text">WATER-Q</div>
+        <div class="waterq-sub-text">COLOR BANK SYSTEM</div>
+    </div>
+</div>
+""", unsafe_allow_html=True)
 
 # ----------------------------------------------------
 # 2. 사이드바 - API 키 및 스마트폰/시스템 설정
 # ----------------------------------------------------
 with st.sidebar:
-    st.header("⚙️ 시스템 및 기기 설정")
+    st.header("⚙️ 시스템 & 기기 설정")
     
     # API 키 연동
     if "GEMINI_API_KEY" in st.secrets:
@@ -64,7 +190,7 @@ with st.sidebar:
                 "iPhone 7 / 7 Plus / SE (2016)",
                 "iPhone 6s / 6s Plus (2015)",
             ],
-            index=3 # 기본값 iPhone 14
+            index=3
         )
         selected_camera = f"애플 {phone_model}"
     elif brand == "삼성 (Samsung)":
@@ -93,7 +219,7 @@ with st.sidebar:
     st.info(f"현재 카메라 보정 기종: **{selected_camera}**")
 
     st.markdown("---")
-    st.markdown("### 📘 워터큐(Water-Q) 시스템 핵심 수칙")
+    st.markdown("### 📘 Water-Q 시스템 핵심 수칙")
     st.markdown("""
     * **카메라 왜곡 보정**: 선택 기종 특유의 HDR/색감 왜곡을 역추정하여 실제 육안 기준 색차 분석
     * **델타 E ($\Delta E$) 예측**: 도장 완료 시 목표 색상과의 예상 색차율 제공
@@ -117,7 +243,7 @@ tab_tuning, tab_defect = st.tabs(["🎨 Water-Q AI 미세 조색 (Fine-Tuning)",
 # TAB 1: Water-Q AI 스마트 미세 조색 모듈
 # ====================================================
 with tab_tuning:
-    st.header("🎨 워터큐(Water-Q) 전용 AI Fine-Tuning 조색")
+    st.subheader("🎨 워터큐(Water-Q) 전용 AI Fine-Tuning 조색")
     st.write("목표 색상과 1차 시편, 현재 배합표, 원하시는 조색 총량을 입력해 주세요.")
 
     col_t1, col_t2 = st.columns(2)
@@ -255,7 +381,7 @@ with tab_tuning:
 # TAB 2: 도장 결함 진단 모듈
 # ====================================================
 with tab_defect:
-    st.header("🔍 도장 결함 원인 분석 및 재작업 가이드")
+    st.subheader("🔍 도장 결함 원인 분석 및 재작업 가이드")
     st.write("결함이 발생한 도장면 사진을 업로드하고 현장 특이사항을 입력해 주세요.")
 
     col1, col2 = st.columns([1, 1])
