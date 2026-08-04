@@ -9,7 +9,7 @@ import json
 import pandas as pd
 
 # ----------------------------------------------------
-# 0. 이미지 최적화, 정밀 JSON/텍스트 파서 및 모바일 크롭
+# 0. 이미지 최적화, 정밀 JSON/텍스트 파서 및 가로 결합 크롭 함수
 # ----------------------------------------------------
 def load_and_resize(image_file_or_bytes, max_size=(800, 800)):
     if isinstance(image_file_or_bytes, bytes):
@@ -22,27 +22,39 @@ def load_and_resize(image_file_or_bytes, max_size=(800, 800)):
     img.thumbnail(max_size)
     return img
 
-def crop_center_zoom(image_file_or_bytes, crop_ratio=0.4):
-    """
-    모바일 화면 최적화를 위해 이미지의 중앙 영역(입자/색상 밀집 부위)만
-    정밀 크롭(Zoom-in)하여 반환합니다.
-    """
-    if isinstance(image_file_or_bytes, bytes):
-        img = Image.open(io.BytesIO(image_file_or_bytes))
-    else:
-        img = Image.open(image_file_or_bytes)
-        
-    if img.mode in ("RGBA", "P"):
-        img = img.convert("RGB")
-        
+def crop_center(img, crop_ratio=0.4):
+    """이미지의 중앙 영역(crop_ratio 비율)만 크롭합니다."""
     w, h = img.size
     cw, ch = int(w * crop_ratio), int(h * crop_ratio)
     left = (w - cw) // 2
     top = (h - ch) // 2
-    right = left + cw
-    bottom = top + ch
+    return img.crop((left, top, left + cw, top + ch))
+
+def create_horizontal_split_view(bytes1, bytes2, crop_ratio=0.4):
+    """
+    이전 시편(좌)과 신규 시편(우)의 중앙을 크롭한 뒤,
+    가로로 딱 붙여 하나의 이어진 대조 이미지(Split View)로 결합합니다.
+    """
+    img1 = load_and_resize(bytes1)
+    img2 = load_and_resize(bytes2)
     
-    return img.crop((left, top, right, bottom))
+    crop1 = crop_center(img1, crop_ratio)
+    crop2 = crop_center(img2, crop_ratio)
+    
+    # 높이를 동일하게 맞춤
+    h = min(crop1.height, crop2.height)
+    w1 = int(crop1.width * (h / crop1.height))
+    w2 = int(crop2.width * (h / crop2.height))
+    
+    crop1_resized = crop1.resize((w1, h))
+    crop2_resized = crop2.resize((w2, h))
+    
+    # 가로로 딱 붙인 새로운 이미지 생성
+    merged_img = Image.new("RGB", (w1 + w2, h))
+    merged_img.paste(crop1_resized, (0, 0))
+    merged_img.paste(crop2_resized, (w1, 0))
+    
+    return merged_img
 
 def extract_recipe_df_from_ai_text(text):
     if not text:
@@ -317,6 +329,7 @@ with st.sidebar:
     st.markdown("---")
     st.markdown("### 📘 Water-Q 원스톱 수칙")
     st.markdown("""
+    * **가로 접합 대조 (Split View)**: 이전 시편(좌)과 신규 시편(우)을 가로로 딱 붙여 한눈에 비교
     * **엄격한 합격 기준 ($\Delta E \le 0.5$)**: 육안 감지 불가능 기준인 **색차 0.5 이하 도달 시 자동 조색 종료**
     * **CIE $L^*a*b^*$ 색공간 정밀 분석**: 명도($L^*$), 적/녹($a^*$), 황/청($b^*$) 3축 알고리즘을 통한 오차 교정
     * **15cm 정격 촬영 수칙**: 펄/메탈릭 알갱이 질감 분해능 확보를 위한 15cm 수직 촬영
@@ -345,7 +358,7 @@ with tab_tuning:
     
     col_t1, col_t2 = st.columns(2)
     
-    # 1. 목표 차체 사진 (직접 촬영 / 업로드 탭 연동 및 15cm 가이드)
+    # 1. 목표 차체 사진
     with col_t1:
         st.write("1. 목표 차체/판넬 사진 (Target)")
         st.markdown("""<div class="distance-guide-box">
@@ -404,21 +417,27 @@ with tab_tuning:
                 use_container_width=True
             )
 
-    # 3. [모바일 최적화] 이전 시편 vs 신규 시편 중앙 크롭 정밀 확대 대조 (2차 이상 조색 시)
+    # 3. [★ 핵심 개편] 이전 시편(좌) vs 신규 시편(우) 가로 접합 1:1 대조 비교 (Split View)
     if not is_stage_1 and st.session_state.prev_sample_bytes and st.session_state.temp_sample_bytes:
         st.markdown("---")
         st.markdown("""<div class="comparison-card">
-            <h4 style="margin-top:0; color:#003375;">📱 15cm 정밀 정격 촬영: 시편 입자 & 색상 확대 비교 (Zoom-in Crop)</h4>
-            <p style="font-size:13px; color:#4A5568;">15cm 거리에서 일관되게 촬영된 시편의 중앙 입자감(펄/메탈릭) 및 미세 색차가 1:1 확대 대조됩니다.</p>
-        </div>""", unsafe_allow_html=True)
+            <h4 style="margin-top:0; color:#003375;">📱 시편 입자 & 색상 가로 결합 정밀 대조 (Horizontal Split View)</h4>
+            <p style="font-size:13px; color:#4A5568;">
+                <b>[왼쪽: {prev_stage_code} 시편]</b> | <b>[오른쪽: {stage_code} 신규 시편]</b><br>
+                두 시편의 중앙을 잘라 가로로 연결했습니다. 경계선 부위의 펄 알갱이 질감 및 색조 차이를 직관적으로 확인하세요.
+            </p>
+        </div>""".format(prev_stage_code=prev_stage_code, stage_code=stage_code), unsafe_allow_html=True)
         
-        c_comp1, c_comp2 = st.columns(2)
-        with c_comp1:
-            st.write(f"🔍 **{prev_stage_code} 시편 15cm 확대 (이전)**")
-            st.image(crop_center_zoom(st.session_state.prev_sample_bytes), use_container_width=True)
-        with c_comp2:
-            st.write(f"🔍 **{stage_code} 시편 15cm 확대 (현재 신규)**")
-            st.image(crop_center_zoom(st.session_state.temp_sample_bytes), use_container_width=True)
+        split_view_img = create_horizontal_split_view(
+            st.session_state.prev_sample_bytes,
+            st.session_state.temp_sample_bytes,
+            crop_ratio=0.4
+        )
+        st.image(
+            split_view_img,
+            caption=f"◀️ {prev_stage_code} 시편 (이전) | {stage_code} 시편 (현재) ▶️",
+            use_container_width=True
+        )
 
     st.markdown("---")
     
@@ -551,7 +570,7 @@ with tab_tuning:
                        - 황/청 오차 ($\Delta b^*$): 황미(+) 또는 청미(-) 오차 파악
                        - Flop 감도 오차: 입자 알갱이의 반사 명도차 분석
                     2. **Delta E 판정**:
-                       - 동일한 사진이거나, 육안으로 구분이 완전히 불가능한 경우 **예상 $\Delta E \le 0.5$** 로 엄격 판정하세요.
+                       - 두 시편 사진이 동일하거나, 육안으로 구분이 완전히 불가능한 경우 **예상 $\Delta E \le 0.5$** 로 엄격 판정하세요.
                     3. **$\Delta E \le 0.5$ 일 경우**:
                        - 리포트 상단에 **`[판정: 🎉 조색 완벽 합격 (Delta E <= 0.5)]`** 문구를 포함하세요.
                        - 추가 투입/감량 없이 **현재 레시피 유지(0.00g 변동)**로 최종 완벽 합격 처리하세요.
