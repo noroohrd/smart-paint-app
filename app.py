@@ -27,8 +27,7 @@ st.set_page_config(
 )
 
 # 노루페인트 자동차보수용 도료(autorefinishes.co.kr) 웹사이트 컨셉 Custom CSS
-st.markdown("""
-<style>
+st.markdown("""<style>
     @import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css');
 
     html, body, [class*="css"] {
@@ -42,7 +41,6 @@ st.markdown("""
         border-radius: 16px;
         color: #FFFFFF;
         box-shadow: 0 8px 24px rgba(0, 51, 117, 0.18);
-        margin-bottom: 10px;
     }
 
     .noroo-brand-name {
@@ -60,18 +58,6 @@ st.markdown("""
         margin: 4px 0 0 0;
         letter-spacing: -0.5px;
         word-break: keep-all;
-    }
-
-    /* 로고 화이트 카드 감싸기 */
-    .logo-card-container {
-        background-color: #FFFFFF;
-        padding: 10px 16px;
-        border-radius: 14px;
-        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.12);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        margin-bottom: 10px;
     }
 
     /* Streamlit Tab 스타일링 */
@@ -95,7 +81,7 @@ st.markdown("""
         box-shadow: 0 4px 12px rgba(0, 51, 117, 0.2);
     }
 
-    /* 버튼 커스텀 */
+    /* 실행 버튼 커스텀 */
     div.stButton > button[kind="primary"] {
         background: linear-gradient(135deg, #003375 0%, #005BB5 100%);
         color: white;
@@ -119,34 +105,25 @@ st.markdown("""
         background-color: #F8FAFC;
         border-right: 1px solid #E2E8F0;
     }
-</style>
-""", unsafe_allow_html=True)
+</style>""", unsafe_allow_html=True)
 
-# 메인 상단 헤더 레이아웃 (왼쪽: 제목, 오른쪽: Water-Q 공식 로고)
-col_header_left, col_header_right = st.columns([3.4, 1.2], vertical_alignment="center")
+# 메인 상단 헤더 레이아웃 (왼쪽: NOROO 타이틀 배너, 오른쪽: Water-Q 공식 로고 파일)
+col_header_left, col_header_right = st.columns([3.5, 1.2], vertical_alignment="center")
 
 with col_header_left:
-    st.markdown("""
-    <div class="noroo-header-box">
+    st.markdown("""<div class="noroo-header-box">
         <span class="noroo-brand-name">NOROO AUTO REFINISHES</span>
         <h1 class="noroo-main-title">AI 스마트 조색 & 도장 결함 진단 솔루션</h1>
-    </div>
-    """, unsafe_allow_html=True)
+    </div>""", unsafe_allow_html=True)
 
 with col_header_right:
-    # 폴더 내 waterq_logo.png 감지 및 출력
-    logo_path = None
-    for fname in ["waterq_logo.png", "waterq_logo.jpg", "waterq_logo.jpeg", "logo.png"]:
-        if os.path.exists(fname):
-            logo_path = fname
-            break
-        
-    if logo_path:
-        st.markdown('<div class="logo-card-container">', unsafe_allow_html=True)
-        st.image(logo_path, use_container_width=True)
-        st.markdown('</div>', unsafe_allow_html=True)
+    # 폴더 내 waterq_logo.png 불러오기
+    if os.path.exists("waterq_logo.png"):
+        st.image("waterq_logo.png", use_container_width=True)
+    elif os.path.exists("waterq_logo.jpg"):
+        st.image("waterq_logo.jpg", use_container_width=True)
     else:
-        st.info("💡 `waterq_logo.png` 파일 추가 필요")
+        st.warning("⚠️ `waterq_logo.png` 로고 파일이 필요합니다.")
 
 st.markdown("---")
 
