@@ -9,9 +9,9 @@ import json
 import pandas as pd
 
 # ----------------------------------------------------
-# 0. 이미지 최적화, 정밀 JSON/텍스트 파서 및 가로 결합 크롭 함수
+# 0. 이미지 최적화, 정밀 JSON/텍스트 파서 및 3분할 결합 함수
 # ----------------------------------------------------
-def load_and_resize(image_file_or_bytes, max_size=(800, 800)):
+def load_and_resize(image_file_or_bytes, max_size=(1200, 1200)):
     if isinstance(image_file_or_bytes, bytes):
         img = Image.open(io.BytesIO(image_file_or_bytes))
     else:
@@ -22,37 +22,42 @@ def load_and_resize(image_file_or_bytes, max_size=(800, 800)):
     img.thumbnail(max_size)
     return img
 
-def crop_center(img, crop_ratio=0.4):
-    """이미지의 중앙 영역(crop_ratio 비율)만 크롭합니다."""
+def crop_center(img, crop_ratio=0.5):
+    """이미지의 중앙 영역(crop_ratio 비율)을 확대 크롭합니다."""
     w, h = img.size
     cw, ch = int(w * crop_ratio), int(h * crop_ratio)
     left = (w - cw) // 2
     top = (h - ch) // 2
     return img.crop((left, top, left + cw, top + ch))
 
-def create_horizontal_split_view(bytes1, bytes2, crop_ratio=0.4):
+def create_3way_split_view(bytes_prev, bytes_target, bytes_curr, crop_ratio=0.5):
     """
-    이전 시편(좌)과 신규 시편(우)의 중앙을 크롭한 뒤,
-    가로로 딱 붙여 하나의 이어진 대조 이미지(Split View)로 결합합니다.
+    [이전 시편(좌)] | [🎯 목표 색상(중앙)] | [신규 시편(우)]
+    세 이미지를 가로로 딱 붙여 큰 화면으로 정밀 대조하는 3분할 뷰를 생성합니다.
     """
-    img1 = load_and_resize(bytes1)
-    img2 = load_and_resize(bytes2)
+    img_prev = load_and_resize(bytes_prev)
+    img_target = load_and_resize(bytes_target)
+    img_curr = load_and_resize(bytes_curr)
     
-    crop1 = crop_center(img1, crop_ratio)
-    crop2 = crop_center(img2, crop_ratio)
+    crop1 = crop_center(img_prev, crop_ratio)
+    crop_t = crop_center(img_target, crop_ratio)
+    crop2 = crop_center(img_curr, crop_ratio)
     
-    # 높이를 동일하게 맞춤
-    h = min(crop1.height, crop2.height)
+    # 높이를 기준에 맞춰 리사이즈
+    h = min(crop1.height, crop_t.height, crop2.height)
     w1 = int(crop1.width * (h / crop1.height))
+    wt = int(crop_t.width * (h / crop_t.height))
     w2 = int(crop2.width * (h / crop2.height))
     
-    crop1_resized = crop1.resize((w1, h))
-    crop2_resized = crop2.resize((w2, h))
+    c1_resized = crop1.resize((w1, h))
+    ct_resized = crop_t.resize((wt, h))
+    c2_resized = crop2.resize((w2, h))
     
-    # 가로로 딱 붙인 새로운 이미지 생성
-    merged_img = Image.new("RGB", (w1 + w2, h))
-    merged_img.paste(crop1_resized, (0, 0))
-    merged_img.paste(crop2_resized, (w1, 0))
+    # 3분할 가로 합성 이미지 생성
+    merged_img = Image.new("RGB", (w1 + wt + w2, h))
+    merged_img.paste(c1_resized, (0, 0))
+    merged_img.paste(ct_resized, (w1, 0))
+    merged_img.paste(c2_resized, (w1 + wt, 0))
     
     return merged_img
 
@@ -235,7 +240,7 @@ st.markdown("""<style>
         background-color: #F8FAFC;
         border: 2px solid #005BB5;
         border-radius: 12px;
-        padding: 16px;
+        padding: 18px;
         margin-bottom: 20px;
     }
 
@@ -329,7 +334,7 @@ with st.sidebar:
     st.markdown("---")
     st.markdown("### 📘 Water-Q 원스톱 수칙")
     st.markdown("""
-    * **가로 접합 대조 (Split View)**: 이전 시편(좌)과 신규 시편(우)을 가로로 딱 붙여 한눈에 비교
+    * **중앙 목표 3분할 대조 (3-Way View)**: [이전 시편] | [🎯 목표 차체] | [신규 시편] 정밀 결합 비교
     * **엄격한 합격 기준 ($\Delta E \le 0.5$)**: 육안 감지 불가능 기준인 **색차 0.5 이하 도달 시 자동 조색 종료**
     * **CIE $L^*a*b^*$ 색공간 정밀 분석**: 명도($L^*$), 적/녹($a^*$), 황/청($b^*$) 3축 알고리즘을 통한 오차 교정
     * **15cm 정격 촬영 수칙**: 펄/메탈릭 알갱이 질감 분해능 확보를 위한 15cm 수직 촬영
@@ -417,25 +422,29 @@ with tab_tuning:
                 use_container_width=True
             )
 
-    # 3. [★ 핵심 개편] 이전 시편(좌) vs 신규 시편(우) 가로 접합 1:1 대조 비교 (Split View)
-    if not is_stage_1 and st.session_state.prev_sample_bytes and st.session_state.temp_sample_bytes:
+    # 3. [★ 핵심 개편] 3분할 결합 정밀 확대 대조 (3-Way Split View)
+    if not is_stage_1 and st.session_state.prev_sample_bytes and st.session_state.target_img_bytes and st.session_state.temp_sample_bytes:
         st.markdown("---")
         st.markdown("""<div class="comparison-card">
-            <h4 style="margin-top:0; color:#003375;">📱 시편 입자 & 색상 가로 결합 정밀 대조 (Horizontal Split View)</h4>
-            <p style="font-size:13px; color:#4A5568;">
-                <b>[왼쪽: {prev_stage_code} 시편]</b> | <b>[오른쪽: {stage_code} 신규 시편]</b><br>
-                두 시편의 중앙을 잘라 가로로 연결했습니다. 경계선 부위의 펄 알갱이 질감 및 색조 차이를 직관적으로 확인하세요.
+            <h4 style="margin-top:0; color:#003375;">📱 목표 색상 중심 3분할 대형 정밀 대조 (3-Way Split View)</h4>
+            <p style="font-size:14px; color:#2D3748; margin-bottom:8px;">
+                <b>[좌: {prev_stage_code} 시편]</b> | <b>[중앙: 🎯 목표 차체(Target)]</b> | <b>[우: {stage_code} 신규 시편]</b>
+            </p>
+            <p style="font-size:12.5px; color:#4A5568;">
+                목표 사진을 가운데에 두고 양옆으로 이전 시편과 신규 시편을 접합했습니다. 경계선 부위의 명도, 색감, 펄 입자감이 목표 색상에 얼마나 다가갔는지 크게 비교하세요.
             </p>
         </div>""".format(prev_stage_code=prev_stage_code, stage_code=stage_code), unsafe_allow_html=True)
         
-        split_view_img = create_horizontal_split_view(
+        split_3way_img = create_3way_split_view(
             st.session_state.prev_sample_bytes,
+            st.session_state.target_img_bytes,
             st.session_state.temp_sample_bytes,
-            crop_ratio=0.4
+            crop_ratio=0.5
         )
+        
         st.image(
-            split_view_img,
-            caption=f"◀️ {prev_stage_code} 시편 (이전) | {stage_code} 시편 (현재) ▶️",
+            split_3way_img,
+            caption=f"◀️ {prev_stage_code} 시편 (이전) | 🎯 목표 차체 (Target) | {stage_code} 시편 (현재 신규) ▶️",
             use_container_width=True
         )
 
