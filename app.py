@@ -4,10 +4,11 @@ from google.genai.errors import APIError
 from PIL import Image
 import os
 import io
+import re
 import pandas as pd
 
 # ----------------------------------------------------
-# 0. 이미지 최적화 리사이즈 및 절대 경로 로고 탐색
+# 0. 이미지 최적화 리사이즈 및 텍스트 레시피 파싱 함수
 # ----------------------------------------------------
 def load_and_resize(image_file_or_bytes, max_size=(800, 800)):
     """
@@ -22,6 +23,27 @@ def load_and_resize(image_file_or_bytes, max_size=(800, 800)):
         img = img.convert("RGB")
     img.thumbnail(max_size)
     return img
+
+def parse_recipe_to_df(recipe_text):
+    """
+    텍스트 레시피에서 Q-코드와 중량을 추출하여 DataFrame으로 변환합니다.
+    예: "Q-7000 80g, Q-8200 10g" -> DataFrame 생성
+    """
+    pattern = r"(Q-\d+)\s*([\d\.]+)\s*g?"
+    matches = re.findall(pattern, recipe_text, re.IGNORECASE)
+    if matches:
+        codes = [m[0].upper() for m in matches]
+        weights = [float(m[1]) for m in matches]
+        return pd.DataFrame({
+            "안료 코드 (Q-Code)": codes,
+            "1차 배합 중량 (g)": weights
+        })
+    else:
+        # 기본 예시 데이터
+        return pd.DataFrame({
+            "안료 코드 (Q-Code)": ["Q-7000", "Q-8200", "Q-5450", "Q-9500"],
+            "1차 배합 중량 (g)": [80.0, 10.0, 5.0, 5.0]
+        })
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -42,7 +64,7 @@ st.set_page_config(
     layout="wide"
 )
 
-# 세션 데이터 유지 (목표 사진, 1차 시편 사진, 1차 배합 레시피 저장)
+# 세션 데이터 유지 (목표 사진, 1차 시편 사진, 1차 레시피 세션)
 if "target_img_bytes" not in st.session_state:
     st.session_state["target_img_bytes"] = None
 if "target_img_name" not in st.session_state:
@@ -53,10 +75,10 @@ if "sample_1_bytes" not in st.session_state:
 if "sample_1_name" not in st.session_state:
     st.session_state["sample_1_name"] = None
 
-# 기본 1차 레시피 데이터 예시 (표 형태 연동용)
+# 1차 레시피 세션 데이터프레임 초기화
 if "recipe_table_df" not in st.session_state:
     st.session_state["recipe_table_df"] = pd.DataFrame({
-        "안료 코드 (Q-Code)": ["Q-7800", "Q-8200", "Q-5450", "Q-9500"],
+        "안료 코드 (Q-Code)": ["Q-7000", "Q-8200", "Q-5450", "Q-9500"],
         "1차 배합 중량 (g)": [80.0, 10.0, 5.0, 5.0]
     })
 
@@ -228,7 +250,7 @@ with st.sidebar:
     st.markdown("---")
     st.markdown("### 📘 Water-Q 시스템 핵심 수칙")
     st.markdown("""
-    * **2차 레시피 표 자동연동**: 2차 조색 선택 시 1차 레시피 업로드 제거 및 표 형태 자동 대조
+    * **1차 $\rightarrow$ 2차 레시피 자동연동**: 1차 입력 레시피가 2차 표 데이터로 실시간 파싱 및 연동
     * **시편 정밀 확대 비교**: 1차 vs 2차 시편 이미지 확대 비교
     * **카메라 왜곡 보정**: 선택 기종 특유의 HDR/색감 왜곡을 역추정하여 실제 육안 기준 색차 분석
     * **Q-7000(표준백색)**: 배합 내 **10% 이상 사용 금지** (초과 시 고농도 백색 **Q-7800 / Q-7900** 교체)
@@ -260,7 +282,6 @@ with tab_tuning:
     
     st.markdown("---")
 
-    # 단계별 플래그 및 문자열 세팅
     is_stage_1 = stage_choice.startswith("1차")
     is_stage_2 = stage_choice.startswith("2차")
     
@@ -285,7 +306,7 @@ with tab_tuning:
 
     col_t1, col_t2 = st.columns(2)
     
-    # 1. 목표 차체 사진 (1차 등록 후 세션 유지)
+    # 1. 목표 차체 사진 (1차 업로드 후 세션 자동 유지)
     with col_t1:
         st.write("1. 목표 차체/판넬 사진 (Target)")
         uploaded_target = st.file_uploader(
@@ -317,7 +338,7 @@ with tab_tuning:
             key=f"sample_uploader_{stage_code}"
         )
         
-        # 1차 조색일 때 1차 시편 세션 저장
+        # 1차 조색 시 1차 시편 세션 저장
         if is_stage_1 and current_img_file is not None:
             st.session_state["sample_1_bytes"] = current_img_file.getvalue()
             st.session_state["sample_1_name"] = current_img_file.name
@@ -329,7 +350,7 @@ with tab_tuning:
                 use_container_width=True
             )
 
-    # ★ 2차 이상 조색 시: 1차 시편 vs 2차 시편 확대 비교 영역 표시 ★
+    # 1차 시편 vs 2차 시편 확대 비교 영역
     if not is_stage_1 and st.session_state["sample_1_bytes"] is not None and current_img_file is not None:
         st.markdown("---")
         st.markdown("""<div class="comparison-card">
@@ -349,7 +370,7 @@ with tab_tuning:
     
     col_r1, col_r2 = st.columns([1.2, 0.8])
 
-    # 3. 배합 레시피 영역 (1차만 업로드 / 2차부터는 표 형태로 자동 정리)
+    # 3. 배합 레시피 영역 (1차만 업로드 / 2차부터는 1차 레시피 표 자동 연동)
     with col_r1:
         if is_stage_1:
             st.subheader("3. 1차 기본 배합 레시피 정보")
@@ -378,12 +399,15 @@ with tab_tuning:
                     placeholder="예: Q-7000 100g, Q-5450 12g, Q-8200 1.5g...",
                     key="recipe_text_1차"
                 )
+                # 작성된 텍스트 레시피를 표(DataFrame)로 자동 변환하여 세션 저장
+                if recipe_text.strip():
+                    st.session_state["recipe_table_df"] = parse_recipe_to_df(recipe_text)
         else:
-            # 2차/N차 조색 모드: 사진 업로드 제거 및 1차 배합 표(Table) 자동 출력
-            st.subheader(f"3. {prev_stage_code} 확정 배합 레시피 (표 형태로 자동 연동)")
-            st.info("💡 2차 이상 조색 시에는 배합표 사진 업로드가 생략되며, 1차 배합 데이터가 표(Table)로 정리되어 반영됩니다.")
+            # 2차/N차 조색 모드: 1차 배합 표(Table) 자동 출력 및 연동
+            st.subheader(f"3. 1차 확정 배합 레시피 (1차 입력 데이터 자동 연동)")
+            st.info("💡 1차 조색 시 입력했던 배합 정보가 표(Table) 형태로 자동 연결되었습니다.")
             
-            # 1차 배합 표 편집/확인
+            # 1차 배합 표 연동 및 편집
             edited_df = st.data_editor(
                 st.session_state["recipe_table_df"],
                 use_container_width=True,
@@ -421,7 +445,7 @@ with tab_tuning:
         elif is_stage_1 and (not recipe_img_file and not recipe_text.strip()):
             st.warning("⚠️ 1차 배합표 사진을 업로드하거나 텍스트를 입력해 주세요.")
         else:
-            with st.spinner(f"AI가 [{stage_code} 조색] 모드로 {prev_stage_code} 배합표와 {stage_code} 시편 오차를 분석하여 신규 배합 대조표를 생성 중입니다..."):
+            with st.spinner(f"AI가 [{stage_code} 조색] 모드로 1차 배합표와 {stage_code} 시편 오차를 분석하여 신규 배합 대조표를 생성 중입니다..."):
                 try:
                     img_target = load_and_resize(st.session_state["target_img_bytes"])
                     img_current = load_and_resize(current_img_file)
@@ -436,9 +460,8 @@ with tab_tuning:
                         else:
                             recipe_prompt_part = f"- 1차 사용 배합 레시피: {recipe_text}"
                     else:
-                        # 2차/N차 모드: DataFrame 표 형태 텍스트로 전달
                         table_str = st.session_state["recipe_table_df"].to_string(index=False)
-                        recipe_prompt_part = f"- {prev_stage_code} 확정 배합표 (표 연동):\n{table_str}"
+                        recipe_prompt_part = f"- 1차 확정 배합표 (표 자동 연동):\n{table_str}"
 
                     waterq_system_prompt = f"""
                     당신은 노루페인트 '워터큐(Water-Q) 칼라뱅크 시스템' 최고의 기술 조색 전문가입니다.
@@ -452,23 +475,23 @@ with tab_tuning:
                     - 측색기 수치 정보: {lab_data if lab_data else '없음 (이미지 시각 분석 기반)'}
 
                     [★ {stage_code} 신규 재배합 및 시각적 대조표 지침 ★]
-                    1. 기존 배합에 덧붓는 방식이 아닙니다. {prev_stage_code} 레시피로 도장한 시편과 목표 색상의 차이(명도, 색상, 채도, 입자감, Flop 감도)를 정밀 분석하여 **새 용기에 새로 조색할 목표 총 중량({target_total_weight}g) 기준의 신규 전체 배합표**를 산출하세요.
-                    2. **시각적 대조표 필수 작성**: {prev_stage_code} 배합 중량과 {stage_code} 신규 배합 중량을 대조하여 각 안료의 가감 변화량(+g / -g)과 처방 역할을 표(Table)로 명확히 보여주세요.
-                    3. {prev_stage_code} 배합에서 부족했던 색조 및 입자감은 비율을 높이고, 오차를 유발한 안료는 감량하거나 제외(0g) 처리하세요. 필요 시 워터큐 DB 중 최적 안료를 신규 투입하세요.
+                    1. 기존 배합에 덧붓는 방식이 아닙니다. 1차 레시피로 도장한 시편과 목표 색상의 차이(명도, 색상, 채도, 입자감, Flop 감도)를 정밀 분석하여 **새 용기에 새로 조색할 목표 총 중량({target_total_weight}g) 기준의 신규 전체 배합표**를 산출하세요.
+                    2. **시각적 대조표 필수 작성**: 1차 배합 중량과 {stage_code} 신규 배합 중량을 대조하여 각 안료의 가감 변화량(+g / -g)과 처방 역할을 표(Table)로 명확히 보여주세요.
+                    3. 1차 배합에서 부족했던 색조 및 입자감은 비율을 높이고, 오차를 유발한 안료는 감량하거나 제외(0g) 처리하세요. 필요 시 워터큐 DB 중 최적 안료를 신규 투입하세요.
                     4. 백색 규정(Q-7000 10% 이내 사용, 초과 시 Q-7800/7900 사용) 및 메탈릭 조색 시 Q-3550 금지 수칙을 철저히 준수하세요.
 
                     [작성 양식]
                     1. **실제 육안(Human Eye) 기준 색상 및 {stage_code} 오차 정밀 분석**: ({selected_camera} 특성 보정 후 명도, 색상, 입자감, Flop 차이 분석)
-                    2. **{stage_code} 배합 변경 처방 이유**: ({prev_stage_code} 배합 대비 안료 비율 수정 이유 및 신규 추가/제외 안료 설명)
-                    3. **📊 Water-Q AI {prev_stage_code} vs {stage_code} 신규 배합 대조표 (목표 총량 {target_total_weight}g 기준)**:
+                    2. **{stage_code} 배합 변경 처방 이유**: (1차 배합 대비 안료 비율 수정 이유 및 신규 추가/제외 안료 설명)
+                    3. **📊 Water-Q AI 1차 vs {stage_code} 신규 배합 대조표 (목표 총량 {target_total_weight}g 기준)**:
                        - 반드시 아래 마크다운 표 형식으로 작성하세요.
                        
-                       | 안료 코드 (Q-Code) | {prev_stage_code} 배합 중량 (g) | {stage_code} 신규 배합 중량 (g) | 가감 차이 (g) | 처방 역할 및 상태 |
+                       | 안료 코드 (Q-Code) | 1차 배합 중량 (g) | {stage_code} 신규 배합 중량 (g) | 가감 차이 (g) | 처방 역할 및 상태 |
                        | :--- | :--- | :--- | :--- | :--- |
                        | 예: Q-7000 | 80.00 | 0.00 | -80.00 | ❌ 제외 (백색 규정 위반) |
                        | 예: Q-7800 | 0.00 | 15.00 | +15.00 | ✨ 신규 추가 (고농도 백색) |
                        | 예: Q-5450 | 5.00 | 5.80 | +0.80 | 🔺 비율 보강 (청색 강화) |
-                       | **합계 (Total)** | **{prev_stage_code} 총량** | **{target_total_weight}g** | **-** | **{stage_code} 100% 신규 완벽 배합** |
+                       | **합계 (Total)** | **1차 총량** | **{target_total_weight}g** | **-** | **{stage_code} 100% 신규 완벽 배합** |
 
                     4. **🎯 예상 $\Delta E$ (색차) 및 육안 평가**: 
                        - 이번 {stage_code} 레시피로 재도장 시 예상되는 **델타 E ($\Delta E$) 수치** 표기 (예: "예상 $\Delta E$: 0.35 (매우 우수)")
